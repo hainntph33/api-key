@@ -705,7 +705,7 @@ app.get('/generate-temp-key', async (req, res) => {
     });
     
     // Tính toán thời gian hết hạn (30 phút từ bây giờ)
-    const expiryTime = new Date(now.getTime() + 1800000).toISOString();
+    const expiryTime = new Date(now.getTime() + 1000).toISOString();
     
     // Bắt đầu transaction
     await db.run('BEGIN TRANSACTION');
