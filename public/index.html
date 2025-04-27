@@ -165,6 +165,15 @@
                   <label for="expiryDate" class="form-label">Ngày hết hạn (không bắt buộc)</label>
                   <input type="date" class="form-control" id="expiryDate">
                 </div>
+                <div class="form-check mb-3">
+                  <input class="form-check-input" type="checkbox" id="allowAutoRegister" checked>
+                  <label class="form-check-label" for="allowAutoRegister">
+                    Cho phép tự động đăng ký IP mới
+                  </label>
+                  <div class="form-text">
+                    Khi bật, bất kỳ ai biết API key đều có thể tự đăng ký IP của họ. Khi tắt, chỉ có admin mới có thể thêm IP được phép.
+                  </div>
+                </div>
                 <div class="d-grid">
                   <button type="submit" class="btn btn-primary">
                     <i class="fas fa-plus-circle me-1"></i> Tạo API Key
@@ -246,6 +255,7 @@
     const addIpKeyId = document.getElementById('addIpKeyId');
     const newIpAddress = document.getElementById('newIpAddress');
     const saveNewIpBtn = document.getElementById('saveNewIpBtn');
+    const allowAutoRegisterCheckbox = document.getElementById('allowAutoRegister');
 
     // Bootstrap modals
     const addIpModal = new bootstrap.Modal(document.getElementById('addIpModal'));
@@ -295,6 +305,7 @@
       const name = document.getElementById('keyName').value;
       const ipAddressesText = document.getElementById('ipAddresses').value;
       const expiryDate = document.getElementById('expiryDate').value;
+      const allowAutoRegister = document.getElementById('allowAutoRegister').checked;
       
       const allowedIPs = ipAddressesText
         .split('\n')
@@ -303,7 +314,8 @@
       
       const data = {
         name,
-        allowedIPs
+        allowedIPs,
+        allowAutoRegister
       };
       
       if (expiryDate) {
@@ -327,6 +339,7 @@
         const result = await response.json();
         showToast('API key đã được tạo thành công!', 'success');
         createApiKeyForm.reset();
+        allowAutoRegisterCheckbox.checked = true;
         fetchApiKeys();
       } catch (error) {
         showToast('Lỗi: ' + error.message, 'danger');
@@ -390,6 +403,7 @@
         const isActive = key.isActive === 1;
         const isExpired = key.expiresAt && new Date(key.expiresAt) < new Date();
         const status = isActive && !isExpired ? 'active' : 'inactive';
+        const allowAutoRegister = key.allowAutoRegister === 1;
         
         html += `
           <div class="api-key-item" data-id="${key.id}">
@@ -407,6 +421,12 @@
                     <li>
                       <a class="dropdown-item add-ip-btn" href="#" data-id="${key.id}">
                         <i class="fas fa-plus me-2"></i> Thêm IP
+                      </a>
+                    </li>
+                    <li>
+                      <a class="dropdown-item toggle-auto-register-btn" href="#" data-id="${key.id}" data-auto-register="${allowAutoRegister}">
+                        <i class="fas fa-${allowAutoRegister ? 'lock' : 'unlock'} me-2"></i> 
+                        ${allowAutoRegister ? 'Tắt' : 'Bật'} tự động đăng ký IP
                       </a>
                     </li>
                     <li>
@@ -447,6 +467,10 @@
                   Lần cuối: ${new Date(key.lastUsed).toLocaleString()}
                 </div>
               ` : ''}
+              <div class="small ${allowAutoRegister ? 'text-success' : 'text-danger'}">
+                <i class="fas fa-${allowAutoRegister ? 'unlock' : 'lock'} me-1"></i> 
+                Tự động đăng ký IP: ${allowAutoRegister ? 'Bật' : 'Tắt'}
+              </div>
             </div>
             
             <div class="key-value d-flex align-items-center">
@@ -524,6 +548,38 @@
             } catch (error) {
               showToast('Lỗi: ' + error.message, 'danger');
             }
+          }
+        });
+      });
+      
+      // Toggle auto-register button
+      document.querySelectorAll('.toggle-auto-register-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          const keyId = btn.getAttribute('data-id');
+          const currentAutoRegister = btn.getAttribute('data-auto-register') === 'true';
+          const newAutoRegister = !currentAutoRegister;
+          
+          try {
+            const response = await fetch(`${API_URL}/${keyId}`, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-admin-token': adminToken
+              },
+              body: JSON.stringify({
+                allowAutoRegister: newAutoRegister
+              })
+            });
+            
+            if (!response.ok) {
+              throw new Error('Failed to update auto-register setting');
+            }
+            
+            showToast(`Tự động đăng ký IP đã được ${newAutoRegister ? 'bật' : 'tắt'}!`, 'success');
+            fetchApiKeys();
+          } catch (error) {
+            showToast('Lỗi: ' + error.message, 'danger');
           }
         });
       });

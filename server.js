@@ -51,7 +51,8 @@ async function initializeDatabase() {
       createdAt TEXT DEFAULT (datetime('now')),
       expiresAt TEXT,
       usageCount INTEGER DEFAULT 0,
-      lastUsed TEXT
+      lastUsed TEXT,
+      allowAutoRegister INTEGER DEFAULT 1
     );
     
     CREATE TABLE IF NOT EXISTS allowed_ips (
@@ -62,6 +63,16 @@ async function initializeDatabase() {
       FOREIGN KEY (apikey_id) REFERENCES apikeys(id) ON DELETE CASCADE
     );
   `);
+  
+  // Cập nhật schema nếu cần (thêm cột allowAutoRegister cho các bảng cũ)
+  try {
+    await db.exec(`ALTER TABLE apikeys ADD COLUMN allowAutoRegister INTEGER DEFAULT 1;`);
+  } catch (error) {
+    // Bỏ qua lỗi nếu cột đã tồn tại
+    if (!error.message.includes('duplicate column name')) {
+      console.error('Error adding allowAutoRegister column:', error);
+    }
+  }
   
   console.log('Database initialized');
 }
@@ -153,68 +164,12 @@ const verifyApiKey = async (req, res, next) => {
   }
 };
 
-// Middleware để xác thực API key từ URL query parameter
+// Middleware để xác thực API key từ URL query parameter với kiểm soát tự động đăng ký
 const verifyApiKeyFromURL = async (req, res, next) => {
-  // Lấy API key từ query parameter 'key'
   const apiKey = req.query.key;
   const clientIP = getClientIp(req);
   
-  console.log('API Key from URL:', apiKey); // Debugging
-  console.log('Client IP:', clientIP); // Debugging
-  
-  if (!apiKey) {
-    return res.status(401).json({ error: 'API key is required' });
-  }
-
-  try {
-    // Get API key data
-    const keyData = await db.get('SELECT * FROM apikeys WHERE key = ?', [apiKey]);
-    
-    if (!keyData) {
-      return res.status(401).json({ error: 'Invalid API key' });
-    }
-    
-    if (!keyData.isActive) {
-      return res.status(403).json({ error: 'API key is inactive' });
-    }
-    
-    if (keyData.expiresAt && new Date(keyData.expiresAt) < new Date()) {
-      return res.status(403).json({ error: 'API key has expired' });
-    }
-    
-    // Check if the client IP is in the allowed IPs list
-    const allowedIPs = await db.all('SELECT ip FROM allowed_ips WHERE apikey_id = ?', [keyData.id]);
-    const ipList = allowedIPs.map(item => item.ip);
-    
-    if (ipList.length > 0 && !ipList.includes(clientIP)) {
-      return res.status(403).json({ error: 'IP not authorized for this API key' });
-    }
-    
-    // Update usage statistics
-    await db.run(
-      'UPDATE apikeys SET usageCount = usageCount + 1, lastUsed = datetime("now") WHERE id = ?',
-      [keyData.id]
-    );
-    
-    // Attach the key data to the request object
-    req.apiKeyData = {
-      ...keyData,
-      allowedIPs: ipList
-    };
-    
-    next();
-  } catch (error) {
-    console.error('API key verification error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-// Middleware xác thực và tự động thêm IP của người dùng vào danh sách cho phép
-const verifyApiKeyAndAutoAddIP = async (req, res, next) => {
-  const apiKey = req.query.key;
-  const clientIP = getClientIp(req);
-  
-  console.log('API Key from URL:', apiKey); 
+  console.log('API Key from URL:', apiKey);
   console.log('Client IP:', clientIP);
   
   if (!apiKey) {
@@ -237,24 +192,31 @@ const verifyApiKeyAndAutoAddIP = async (req, res, next) => {
       return res.status(403).json({ error: 'API key has expired' });
     }
     
-    // Kiểm tra nếu IP chưa được thêm vào danh sách, thì thêm vào
-    const existingIp = await db.get(
-      'SELECT * FROM allowed_ips WHERE apikey_id = ? AND ip = ?',
-      [keyData.id, clientIP]
-    );
+    // Lấy danh sách IP được phép của key này
+    const allowedIPs = await db.all('SELECT ip FROM allowed_ips WHERE apikey_id = ?', [keyData.id]);
+    let ipList = allowedIPs.map(item => item.ip);
     
-    if (!existingIp) {
-      // Thêm IP hiện tại vào danh sách được phép
+    // Kiểm tra xem IP đã được đăng ký chưa
+    if (ipList.includes(clientIP)) {
+      // IP đã đăng ký, cho phép truy cập
+    } else if (keyData.allowAutoRegister === 1) {
+      // Key cho phép tự động đăng ký và IP chưa đăng ký
       await db.run(
         'INSERT INTO allowed_ips (apikey_id, ip) VALUES (?, ?)',
         [keyData.id, clientIP]
       );
       console.log(`Auto-added IP ${clientIP} for key ${apiKey}`);
+      
+      // Cập nhật danh sách IP
+      const updatedIPs = await db.all('SELECT ip FROM allowed_ips WHERE apikey_id = ?', [keyData.id]);
+      ipList = updatedIPs.map(item => item.ip);
+    } else {
+      // Key không cho phép tự động đăng ký và IP chưa được đăng ký
+      return res.status(403).json({ 
+        error: 'IP not authorized for this API key and auto-registration is disabled',
+        clientIP: clientIP
+      });
     }
-    
-    // Lấy danh sách IP được phép của key này
-    const allowedIPs = await db.all('SELECT ip FROM allowed_ips WHERE apikey_id = ?', [keyData.id]);
-    const ipList = allowedIPs.map(item => item.ip);
     
     // Update usage statistics
     await db.run(
@@ -275,16 +237,6 @@ const verifyApiKeyAndAutoAddIP = async (req, res, next) => {
   }
 };
 
-// Route sử dụng middleware tự động thêm IP
-app.get('/api/auto-register', verifyApiKeyAndAutoAddIP, (req, res) => {
-  res.json({ 
-    message: 'Your IP has been automatically registered with this API key',
-    keyName: req.apiKeyData.name,
-    registeredIP: getClientIp(req),
-    allowedIPs: req.apiKeyData.allowedIPs
-  });
-});
-
 // Route để xác thực API key thông qua URL
 app.get('/verify', verifyApiKeyFromURL, (req, res) => {
   res.json({ 
@@ -293,9 +245,11 @@ app.get('/verify', verifyApiKeyFromURL, (req, res) => {
     key: {
       name: req.apiKeyData.name,
       expiresAt: req.apiKeyData.expiresAt,
-      usageCount: req.apiKeyData.usageCount
+      usageCount: req.apiKeyData.usageCount,
+      allowAutoRegister: req.apiKeyData.allowAutoRegister === 1
     },
-    clientIP: getClientIp(req)
+    clientIP: getClientIp(req),
+    allowedIPs: req.apiKeyData.allowedIPs
   });
 });
 
@@ -304,7 +258,8 @@ app.get('/api/data-url', verifyApiKeyFromURL, (req, res) => {
   res.json({ 
     message: 'You have access to protected data via URL',
     keyName: req.apiKeyData.name,
-    clientIP: getClientIp(req)
+    clientIP: getClientIp(req),
+    registeredIPs: req.apiKeyData.allowedIPs
   });
 });
 
@@ -325,7 +280,7 @@ adminRouter.use((req, res, next) => {
 // Create a new API key
 adminRouter.post('/keys', async (req, res) => {
   try {
-    const { name, allowedIPs, expiresAt } = req.body;
+    const { name, allowedIPs, expiresAt, allowAutoRegister } = req.body;
     
     if (!name) {
       return res.status(400).json({ error: 'Name is required' });
@@ -338,8 +293,8 @@ adminRouter.post('/keys', async (req, res) => {
     
     // Insert the new API key
     const result = await db.run(
-      'INSERT INTO apikeys (key, name, expiresAt) VALUES (?, ?, ?)',
-      [key, name, expiresAt]
+      'INSERT INTO apikeys (key, name, expiresAt, allowAutoRegister) VALUES (?, ?, ?, ?)',
+      [key, name, expiresAt, allowAutoRegister === false ? 0 : 1]
     );
     
     const keyId = result.lastID;
@@ -415,7 +370,7 @@ adminRouter.get('/keys/:id', async (req, res) => {
 // Update an API key
 adminRouter.put('/keys/:id', async (req, res) => {
   try {
-    const { name, allowedIPs, isActive, expiresAt } = req.body;
+    const { name, allowedIPs, isActive, expiresAt, allowAutoRegister } = req.body;
     const keyId = req.params.id;
     
     // Check if key exists
@@ -430,11 +385,12 @@ adminRouter.put('/keys/:id', async (req, res) => {
     
     // Update the API key
     await db.run(
-      'UPDATE apikeys SET name = ?, isActive = ?, expiresAt = ? WHERE id = ?',
+      'UPDATE apikeys SET name = ?, isActive = ?, expiresAt = ?, allowAutoRegister = ? WHERE id = ?',
       [
         name || existingKey.name,
         isActive !== undefined ? isActive : existingKey.isActive,
         expiresAt || existingKey.expiresAt,
+        allowAutoRegister !== undefined ? (allowAutoRegister ? 1 : 0) : existingKey.allowAutoRegister,
         keyId
       ]
     );
