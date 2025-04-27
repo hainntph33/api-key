@@ -616,6 +616,144 @@ adminRouter.delete('/keys/:id', async (req, res) => {
   }
 });
 
+// Lưu trữ tạm thời các IP đã yêu cầu key và thời gian cuối cùng họ nhận được key
+const tempKeyRequests = new Map();
+
+// Rate limiter cho các yêu cầu API để ngăn chặn các cuộc tấn công brute force
+const apiRateLimiter = new Map();
+
+// Middleware để giới hạn tốc độ cho các yêu cầu API
+function rateLimiterMiddleware(req, res, next) {
+  const clientIP = getClientIp(req);
+  const now = Date.now();
+  
+  if (apiRateLimiter.has(clientIP)) {
+    const requests = apiRateLimiter.get(clientIP);
+    
+    // Xóa các yêu cầu cũ hơn 1 phút
+    const recentRequests = requests.filter(time => now - time < 60000);
+    
+    // Lưu trữ yêu cầu hiện tại
+    recentRequests.push(now);
+    apiRateLimiter.set(clientIP, recentRequests);
+    
+    // Kiểm tra nếu có quá nhiều yêu cầu (hơn 20 trong 1 phút)
+    if (recentRequests.length > 20) {
+      return res.status(429).send('false:Quá nhiều yêu cầu. Vui lòng thử lại sau.');
+    }
+  } else {
+    // Lần đầu tiên gọi API từ IP này
+    apiRateLimiter.set(clientIP, [now]);
+  }
+  
+  next();
+}
+
+// Áp dụng rate limiter cho các routes cần bảo vệ
+app.use('/api', rateLimiterMiddleware);
+app.use('/verify', rateLimiterMiddleware);
+app.use('/generate-temp-key', rateLimiterMiddleware);
+
+// Định kỳ dọn dẹp bộ nhớ đệm rate limiter
+setInterval(() => {
+  const now = Date.now();
+  
+  // Xóa các IP đã không hoạt động trong 10 phút
+  for (const [ip, times] of apiRateLimiter.entries()) {
+    const recentRequests = times.filter(time => now - time < 600000);
+    if (recentRequests.length === 0) {
+      apiRateLimiter.delete(ip);
+    } else {
+      apiRateLimiter.set(ip, recentRequests);
+    }
+  }
+}, 300000); // Chạy mỗi 5 phút
+
+// Chức năng tạo key tạm thời từ URL
+app.get('/generate-temp-key', async (req, res) => {
+  const clientIP = getClientIp(req);
+  const deviceIdentifier = getDeviceIdentifier(req);
+  const now = new Date();
+  
+  // Kiểm tra nếu IP này đã yêu cầu key trước đó và phải chờ
+  if (tempKeyRequests.has(clientIP)) {
+    const lastRequest = tempKeyRequests.get(clientIP);
+    const timeDifference = now - lastRequest.timestamp;
+    
+    // Kiểm tra xem đã qua 30 phút chưa (1800000 milliseconds)
+    if (timeDifference < 1800000) {
+      const remainingTime = Math.ceil((1800000 - timeDifference) / 60000);
+      return res.status(429).json({
+        error: `Yêu cầu quá nhiều. Vui lòng thử lại sau ${remainingTime} phút.`,
+        clientIP: clientIP,
+        nextAvailableTime: new Date(lastRequest.timestamp.getTime() + 1800000).toISOString()
+      });
+    }
+  }
+  
+  try {
+    // Tạo tên key dựa trên IP và thời gian
+    const keyName = `TempKey_${clientIP.replace(/\./g, '_')}_${Date.now()}`;
+    
+    // Tạo key mới với các giới hạn
+    const key = generateApiKey();
+    
+    // Lưu thời gian yêu cầu và thông tin vào bộ nhớ tạm thời
+    tempKeyRequests.set(clientIP, {
+      timestamp: now,
+      key: key
+    });
+    
+    // Tính toán thời gian hết hạn (30 phút từ bây giờ)
+    const expiryTime = new Date(now.getTime() + 1800000).toISOString();
+    
+    // Bắt đầu transaction
+    await db.run('BEGIN TRANSACTION');
+    
+    // Thêm key vào database
+    const result = await db.run(
+      'INSERT INTO apikeys (key, name, expiresAt, allowAutoRegister, maxIpCount, multipleDevicesPerIp, usageLimit) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [
+        key,
+        keyName,
+        expiryTime,
+        0, // Không cho phép tự động đăng ký IP
+        1, // Chỉ cho phép 1 IP
+        0, // Không cho phép nhiều thiết bị/IP
+        5  // Giới hạn 5 lần sử dụng
+      ]
+    );
+    
+    const keyId = result.lastID;
+    
+    // Đăng ký IP của client
+    await db.run(
+      'INSERT INTO allowed_ips (apikey_id, ip, deviceIdentifier, lastUsed) VALUES (?, ?, ?, datetime("now"))',
+      [keyId, clientIP, deviceIdentifier]
+    );
+    
+    // Hoàn thành transaction
+    await db.run('COMMIT');
+    
+    // Trả về thông tin key cho client
+    res.json({
+      success: true,
+      message: 'Key tạm thời đã được tạo thành công.',
+      apiKey: key,
+      usageLimit: 5,
+      expiresAt: expiryTime,
+      registeredIP: clientIP,
+      deviceIdentifier: deviceIdentifier,
+      testEndpoint: `${req.protocol}://${req.get('host')}/api/data-url?key=${key}`
+    });
+    
+  } catch (error) {
+    await db.run('ROLLBACK');
+    console.error('Error creating temporary API key:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Register IP for an existing API key
 adminRouter.post('/keys/:id/ip', async (req, res) => {
   try {
