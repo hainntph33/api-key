@@ -1,412 +1,399 @@
 <!DOCTYPE html>
 <html lang="vi">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quản lý API Key</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        body {
-            background-color: #f8f9fa;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-
-        .container {
-            max-width: 1200px;
-        }
-
-        .header {
-            background-color: #4a6cf7;
-            color: white;
-            padding: 20px 0;
-            margin-bottom: 30px;
-        }
-
-        .card {
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            margin-bottom: 20px;
-            border: none;
-        }
-
-        .card-header {
-            background-color: #f8f9fa;
-            border-bottom: 1px solid #e9ecef;
-            font-weight: 600;
-        }
-
-        .btn-primary {
-            background-color: #4a6cf7;
-            border-color: #4a6cf7;
-        }
-
-        .btn-primary:hover {
-            background-color: #3a5fec;
-            border-color: #3a5fec;
-        }
-
-        .form-label {
-            font-weight: 500;
-        }
-
-        .table th {
-            font-weight: 600;
-        }
-
-        .badge {
-            font-weight: 500;
-        }
-
-        .api-key-item {
-            background-color: white;
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 15px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-        }
-
-        .key-value {
-            background-color: #f8f9fa;
-            padding: 8px 12px;
-            border-radius: 5px;
-            font-family: monospace;
-            margin: 10px 0;
-            overflow-x: auto;
-        }
-
-        .tag {
-            display: inline-block;
-            background-color: #e9ecef;
-            padding: 4px 8px;
-            border-radius: 4px;
-            margin-right: 5px;
-            margin-bottom: 5px;
-            font-size: 0.85rem;
-        }
-
-        .login-form {
-            max-width: 400px;
-            margin: 0 auto;
-            padding: 20px;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-        }
-
-        #loginPage,
-        #dashboard {
-            transition: opacity 0.3s ease-in-out;
-        }
-
-        .hidden {
-            display: none;
-        }
-
-        .ip-tag-container {
-            margin-top: 10px;
-        }
-
-        .status-active {
-            color: #28a745;
-        }
-
-        .status-inactive {
-            color: #dc3545;
-        }
-
-        .copy-btn {
-            cursor: pointer;
-        }
-
-        .toast-container {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 1050;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quản lý API Key</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body {
+      background-color: #f8f9fa;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    .container {
+      max-width: 1200px;
+    }
+    .header {
+      background-color: #4a6cf7;
+      color: white;
+      padding: 20px 0;
+      margin-bottom: 30px;
+    }
+    .card {
+      border-radius: 10px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      margin-bottom: 20px;
+      border: none;
+    }
+    .card-header {
+      background-color: #f8f9fa;
+      border-bottom: 1px solid #e9ecef;
+      font-weight: 600;
+    }
+    .btn-primary {
+      background-color: #4a6cf7;
+      border-color: #4a6cf7;
+    }
+    .btn-primary:hover {
+      background-color: #3a5fec;
+      border-color: #3a5fec;
+    }
+    .form-label {
+      font-weight: 500;
+    }
+    .table th {
+      font-weight: 600;
+    }
+    .badge {
+      font-weight: 500;
+    }
+    .api-key-item {
+      background-color: white;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 15px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+    .key-value {
+      background-color: #f8f9fa;
+      padding: 8px 12px;
+      border-radius: 5px;
+      font-family: monospace;
+      margin: 10px 0;
+      overflow-x: auto;
+    }
+    .tag {
+      display: inline-block;
+      background-color: #e9ecef;
+      padding: 4px 8px;
+      border-radius: 4px;
+      margin-right: 5px;
+      margin-bottom: 5px;
+      font-size: 0.85rem;
+    }
+    .login-form {
+      max-width: 400px;
+      margin: 0 auto;
+      padding: 20px;
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    }
+    #loginPage, #dashboard {
+      transition: opacity 0.3s ease-in-out;
+    }
+    .hidden {
+      display: none;
+    }
+    .ip-tag-container {
+      margin-top: 10px;
+    }
+    .status-active {
+      color: #28a745;
+    }
+    .status-inactive {
+      color: #dc3545;
+    }
+    .copy-btn {
+      cursor: pointer;
+    }
+    .toast-container {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 1050;
+    }
+    .usage-progress {
+      height: 10px;
+      margin-top: 5px;
+    }
+  </style>
 </head>
-
 <body>
-    <!-- Toast Notifications -->
-    <div class="toast-container"></div>
+  <!-- Toast Notifications -->
+  <div class="toast-container"></div>
 
-    <!-- Login Page -->
-    <div id="loginPage" class="container pt-5">
-        <div class="row justify-content-center">
-            <div class="col-md-6">
-                <div class="login-form">
-                    <h2 class="text-center mb-4">Đăng nhập Admin</h2>
-                    <form id="loginForm">
-                        <div class="mb-3">
-                            <label for="adminToken" class="form-label">Admin Token</label>
-                            <input type="password" class="form-control" id="adminToken" required>
-                        </div>
-                        <div class="d-grid">
-                            <button type="submit" class="btn btn-primary">Đăng nhập</button>
-                        </div>
-                    </form>
-                </div>
+  <!-- Login Page -->
+  <div id="loginPage" class="container pt-5">
+    <div class="row justify-content-center">
+      <div class="col-md-6">
+        <div class="login-form">
+          <h2 class="text-center mb-4">Đăng nhập Admin</h2>
+          <form id="loginForm">
+            <div class="mb-3">
+              <label for="adminToken" class="form-label">Admin Token</label>
+              <input type="password" class="form-control" id="adminToken" required>
             </div>
+            <div class="d-grid">
+              <button type="submit" class="btn btn-primary">Đăng nhập</button>
+            </div>
+          </form>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="dashboard" class="hidden">
+    <header class="header">
+      <div class="container">
+        <div class="d-flex justify-content-between align-items-center">
+          <h1>Quản lý API Key</h1>
+          <button id="logoutBtn" class="btn btn-light btn-sm">
+            <i class="fas fa-sign-out-alt me-1"></i> Đăng xuất
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <div class="container mb-5">
+      <div class="row">
+        <!-- Create API Key Form -->
+        <div class="col-lg-4">
+          <div class="card">
+            <div class="card-header">
+              <i class="fas fa-key me-2"></i> Tạo API Key mới
+            </div>
+            <div class="card-body">
+              <form id="createApiKeyForm">
+                <div class="mb-3">
+                  <label for="keyName" class="form-label">Tên</label>
+                  <input type="text" class="form-control" id="keyName" required>
+                </div>
+                <div class="mb-3">
+                  <label for="ipAddresses" class="form-label">Địa chỉ IP (mỗi IP một dòng)</label>
+                  <textarea class="form-control" id="ipAddresses" rows="3" placeholder="192.168.1.1&#10;10.0.0.5"></textarea>
+                </div>
+                <div class="mb-3">
+                  <label for="expiryDate" class="form-label">Ngày hết hạn (không bắt buộc)</label>
+                  <input type="date" class="form-control" id="expiryDate">
+                </div>
+                <div class="mb-3">
+                  <label for="usageLimit" class="form-label">Giới hạn số lần sử dụng</label>
+                  <input type="number" class="form-control" id="usageLimit" value="0" min="0">
+                  <div class="form-text">
+                    Đặt 0 nếu không giới hạn số lần sử dụng.
+                  </div>
+                </div>
+                <div class="form-check mb-3">
+                  <input class="form-check-input" type="checkbox" id="allowAutoRegister" checked>
+                  <label class="form-check-label" for="allowAutoRegister">
+                    Cho phép tự động đăng ký IP mới
+                  </label>
+                  <div class="form-text">
+                    Khi bật, bất kỳ ai biết API key đều có thể tự đăng ký IP của họ. Khi tắt, chỉ có admin mới có thể thêm IP được phép.
+                  </div>
+                </div>
+                <div class="form-check mb-3">
+                  <input class="form-check-input" type="checkbox" id="multipleDevicesPerIp">
+                  <label class="form-check-label" for="multipleDevicesPerIp">
+                    Cho phép nhiều thiết bị trên cùng một IP
+                  </label>
+                  <div class="form-text">
+                    Khi bật, nhiều thiết bị có thể sử dụng cùng một IP. Khi tắt, mỗi IP chỉ có thể được sử dụng bởi một thiết bị.
+                  </div>
+                </div>
+                <div class="mb-3">
+                  <label for="maxIpCount" class="form-label">Số lượng IP tối đa</label>
+                  <input type="number" class="form-control" id="maxIpCount" value="5" min="1" max="100">
+                </div>
+                <div class="d-grid">
+                  <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-plus-circle me-1"></i> Tạo API Key
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <!-- API Keys List -->
+        <div class="col-lg-8">
+          <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <div>
+                <i class="fas fa-list me-2"></i> Danh sách API Keys
+              </div>
+              <button id="refreshKeysBtn" class="btn btn-sm btn-outline-primary">
+                <i class="fas fa-sync-alt me-1"></i> Làm mới
+              </button>
+            </div>
+            <div class="card-body">
+              <div id="apiKeysList" class="mt-3">
+                <div class="text-center py-5">
+                  <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Đang tải...</span>
+                  </div>
+                  <p class="mt-2">Đang tải dữ liệu...</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <!-- Dashboard -->
-    <div id="dashboard" class="hidden">
-        <header class="header">
-            <div class="container">
-                <div class="d-flex justify-content-between align-items-center">
-                    <h1>Quản lý API Key</h1>
-                    <button id="logoutBtn" class="btn btn-light btn-sm">
-                        <i class="fas fa-sign-out-alt me-1"></i> Đăng xuất
-                    </button>
+    <!-- Add IP Modal -->
+    <div class="modal fade" id="addIpModal" tabindex="-1">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Thêm địa chỉ IP</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <form id="addIpForm">
+              <input type="hidden" id="addIpKeyId">
+              <div class="mb-3">
+                <label for="newIpAddress" class="form-label">Địa chỉ IP</label>
+                <input type="text" class="form-control" id="newIpAddress" required placeholder="192.168.1.1">
+              </div>
+              <div class="mb-3">
+                <label for="deviceIdentifier" class="form-label">ID Thiết bị (không bắt buộc)</label>
+                <input type="text" class="form-control" id="deviceIdentifier" placeholder="device123">
+                <div class="form-text">
+                  Để trống nếu không cần chỉ định ID thiết bị cụ thể.
                 </div>
-            </div>
-        </header>
-
-        <div class="container mb-5">
-            <div class="row">
-                <!-- Create API Key Form -->
-                <div class="col-lg-4">
-                    <div class="card">
-                        <div class="card-header">
-                            <i class="fas fa-key me-2"></i> Tạo API Key mới
-                        </div>
-                        <div class="card-body">
-                            <form id="createApiKeyForm">
-                                <div class="mb-3">
-                                    <label for="keyName" class="form-label">Tên</label>
-                                    <input type="text" class="form-control" id="keyName" required>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="ipAddresses" class="form-label">Địa chỉ IP (mỗi IP một dòng)</label>
-                                    <textarea class="form-control" id="ipAddresses" rows="3"
-                                        placeholder="192.168.1.1&#10;10.0.0.5"></textarea>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="expiryDate" class="form-label">Ngày hết hạn (không bắt buộc)</label>
-                                    <input type="date" class="form-control" id="expiryDate">
-                                </div>
-                                <div class="form-check mb-3">
-                                    <input class="form-check-input" type="checkbox" id="allowAutoRegister" checked>
-                                    <label class="form-check-label" for="allowAutoRegister">
-                                        Cho phép tự động đăng ký IP mới
-                                    </label>
-                                    <div class="form-text">
-                                        Khi bật, bất kỳ ai biết API key đều có thể tự đăng ký IP của họ. Khi tắt, chỉ có
-                                        admin mới có thể thêm IP được phép.
-                                    </div>
-                                </div>
-                                <div class="form-check mb-3">
-                                    <input class="form-check-input" type="checkbox" id="multipleDevicesPerIp">
-                                    <label class="form-check-label" for="multipleDevicesPerIp">
-                                        Cho phép nhiều thiết bị trên cùng một IP
-                                    </label>
-                                    <div class="form-text">
-                                        Khi bật, nhiều thiết bị có thể sử dụng cùng một IP. Khi tắt, mỗi IP chỉ có thể
-                                        được sử dụng bởi một thiết bị.
-                                    </div>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="maxIpCount" class="form-label">Số lượng IP tối đa</label>
-                                    <input type="number" class="form-control" id="maxIpCount" value="5" min="1"
-                                        max="100">
-                                </div>
-                                <div class="d-grid">
-                                    <button type="submit" class="btn btn-primary">
-                                        <i class="fas fa-plus-circle me-1"></i> Tạo API Key
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- API Keys List -->
-                <div class="col-lg-8">
-                    <div class="card">
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <div>
-                                <i class="fas fa-list me-2"></i> Danh sách API Keys
-                            </div>
-                            <button id="refreshKeysBtn" class="btn btn-sm btn-outline-primary">
-                                <i class="fas fa-sync-alt me-1"></i> Làm mới
-                            </button>
-                        </div>
-                        <div class="card-body">
-                            <div id="apiKeysList" class="mt-3">
-                                <div class="text-center py-5">
-                                    <div class="spinner-border text-primary" role="status">
-                                        <span class="visually-hidden">Đang tải...</span>
-                                    </div>
-                                    <p class="mt-2">Đang tải dữ liệu...</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+              </div>
+            </form>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+            <button type="button" class="btn btn-primary" id="saveNewIpBtn">Lưu</button>
+          </div>
         </div>
-
-        <!-- Add IP Modal -->
-        <div class="modal fade" id="addIpModal" tabindex="-1">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Thêm địa chỉ IP</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body">
-                        <form id="addIpForm">
-                            <input type="hidden" id="addIpKeyId">
-                            <div class="mb-3">
-                                <label for="newIpAddress" class="form-label">Địa chỉ IP</label>
-                                <input type="text" class="form-control" id="newIpAddress" required
-                                    placeholder="192.168.1.1">
-                            </div>
-                            <div class="mb-3">
-                                <label for="deviceIdentifier" class="form-label">ID Thiết bị (không bắt buộc)</label>
-                                <input type="text" class="form-control" id="deviceIdentifier" placeholder="device123">
-                                <div class="form-text">
-                                    Để trống nếu không cần chỉ định ID thiết bị cụ thể.
-                                </div>
-                            </div>
-                        </form>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
-                        <button type="button" class="btn btn-primary" id="saveNewIpBtn">Lưu</button>
-                    </div>
-                </div>
-            </div>
-        </div>
+      </div>
     </div>
+  </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
-    <script>
-        // Global variables
-        let adminToken = '';
-        const BASE_URL = window.location.origin;
-        const API_URL = `${BASE_URL}/admin/keys`;
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+  <script>
+    // Global variables
+    let adminToken = '';
+    const BASE_URL = window.location.origin;
+    const API_URL = `${BASE_URL}/admin/keys`;
 
-        // DOM elements
-        const loginPage = document.getElementById('loginPage');
-        const dashboard = document.getElementById('dashboard');
-        const loginForm = document.getElementById('loginForm');
-        const createApiKeyForm = document.getElementById('createApiKeyForm');
-        const apiKeysList = document.getElementById('apiKeysList');
-        const refreshKeysBtn = document.getElementById('refreshKeysBtn');
-        const logoutBtn = document.getElementById('logoutBtn');
-        const addIpForm = document.getElementById('addIpForm');
-        const addIpKeyId = document.getElementById('addIpKeyId');
-        const newIpAddress = document.getElementById('newIpAddress');
-        const deviceIdentifier = document.getElementById('deviceIdentifier');
-        const saveNewIpBtn = document.getElementById('saveNewIpBtn');
-        const allowAutoRegisterCheckbox = document.getElementById('allowAutoRegister');
-        const multipleDevicesPerIpCheckbox = document.getElementById('multipleDevicesPerIp');
-        const maxIpCountInput = document.getElementById('maxIpCount');
+    // DOM elements
+    const loginPage = document.getElementById('loginPage');
+    const dashboard = document.getElementById('dashboard');
+    const loginForm = document.getElementById('loginForm');
+    const createApiKeyForm = document.getElementById('createApiKeyForm');
+    const apiKeysList = document.getElementById('apiKeysList');
+    const refreshKeysBtn = document.getElementById('refreshKeysBtn');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const addIpForm = document.getElementById('addIpForm');
+    const addIpKeyId = document.getElementById('addIpKeyId');
+    const newIpAddress = document.getElementById('newIpAddress');
+    const deviceIdentifier = document.getElementById('deviceIdentifier');
+    const saveNewIpBtn = document.getElementById('saveNewIpBtn');
+    const allowAutoRegisterCheckbox = document.getElementById('allowAutoRegister');
+    const multipleDevicesPerIpCheckbox = document.getElementById('multipleDevicesPerIp');
+    const maxIpCountInput = document.getElementById('maxIpCount');
+    const usageLimitInput = document.getElementById('usageLimit');
 
-        // Bootstrap modals
-        const addIpModal = new bootstrap.Modal(document.getElementById('addIpModal'));
+    // Bootstrap modals
+    const addIpModal = new bootstrap.Modal(document.getElementById('addIpModal'));
 
-        // Check if token exists in local storage
-        document.addEventListener('DOMContentLoaded', () => {
-            const storedToken = localStorage.getItem('adminToken');
-            if (storedToken) {
-                adminToken = storedToken;
-                showDashboard();
-                fetchApiKeys();
-            }
+    // Check if token exists in local storage
+    document.addEventListener('DOMContentLoaded', () => {
+      const storedToken = localStorage.getItem('adminToken');
+      if (storedToken) {
+        adminToken = storedToken;
+        showDashboard();
+        fetchApiKeys();
+      }
+    });
+
+    // Login form submission
+    loginForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      adminToken = document.getElementById('adminToken').value;
+      localStorage.setItem('adminToken', adminToken);
+      showDashboard();
+      fetchApiKeys();
+    });
+
+    // Logout
+    logoutBtn.addEventListener('click', () => {
+      adminToken = '';
+      localStorage.removeItem('adminToken');
+      showLoginPage();
+    });
+
+    // Show dashboard
+    function showDashboard() {
+      loginPage.classList.add('hidden');
+      dashboard.classList.remove('hidden');
+    }
+
+    // Show login page
+    function showLoginPage() {
+      dashboard.classList.add('hidden');
+      loginPage.classList.remove('hidden');
+    }
+
+    // Create API key form submission
+    createApiKeyForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const name = document.getElementById('keyName').value;
+      const ipAddressesText = document.getElementById('ipAddresses').value;
+      const expiryDate = document.getElementById('expiryDate').value;
+      const allowAutoRegister = document.getElementById('allowAutoRegister').checked;
+      const multipleDevicesPerIp = document.getElementById('multipleDevicesPerIp').checked;
+      const maxIpCount = document.getElementById('maxIpCount').value;
+      const usageLimit = document.getElementById('usageLimit').value;
+      
+      const allowedIPs = ipAddressesText
+        .split('\n')
+        .map(ip => ip.trim())
+        .filter(ip => ip !== '');
+      
+      const data = {
+        name,
+        allowedIPs,
+        allowAutoRegister,
+        multipleDevicesPerIp,
+        maxIpCount: parseInt(maxIpCount, 10),
+        usageLimit: parseInt(usageLimit, 10)
+      };
+      
+      if (expiryDate) {
+        data.expiresAt = new Date(expiryDate).toISOString();
+      }
+      
+      try {
+        const response = await fetch(API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-admin-token': adminToken
+          },
+          body: JSON.stringify(data)
         });
-
-        // Login form submission
-        loginForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            adminToken = document.getElementById('adminToken').value;
-            localStorage.setItem('adminToken', adminToken);
-            showDashboard();
-            fetchApiKeys();
-        });
-
-        // Logout
-        logoutBtn.addEventListener('click', () => {
-            adminToken = '';
-            localStorage.removeItem('adminToken');
-            showLoginPage();
-        });
-
-        // Show dashboard
-        function showDashboard() {
-            loginPage.classList.add('hidden');
-            dashboard.classList.remove('hidden');
+        
+        if (!response.ok) {
+          throw new Error('Failed to create API key');
         }
+        
+        const result = await response.json();
+        showToast('API key đã được tạo thành công!', 'success');
+        createApiKeyForm.reset();
+        allowAutoRegisterCheckbox.checked = true;
+        multipleDevicesPerIpCheckbox.checked = false;
+        maxIpCountInput.value = 5;
+        usageLimitInput.value = 0;
+        fetchApiKeys();
+      } catch (error) {
+        showToast('Lỗi: ' + error.message, 'danger');
+      }
+    });
 
-        // Show login page
-        function showLoginPage() {
-            dashboard.classList.add('hidden');
-            loginPage.classList.remove('hidden');
-        }
-
-        // Create API key form submission
-        createApiKeyForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-
-            const name = document.getElementById('keyName').value;
-            const ipAddressesText = document.getElementById('ipAddresses').value;
-            const expiryDate = document.getElementById('expiryDate').value;
-            const allowAutoRegister = document.getElementById('allowAutoRegister').checked;
-            const multipleDevicesPerIp = document.getElementById('multipleDevicesPerIp').checked;
-            const maxIpCount = document.getElementById('maxIpCount').value;
-
-            const allowedIPs = ipAddressesText
-                .split('\n')
-                .map(ip => ip.trim())
-                .filter(ip => ip !== '');
-
-            const data = {
-                name,
-                allowedIPs,
-                allowAutoRegister,
-                multipleDevicesPerIp,
-                maxIpCount: parseInt(maxIpCount, 10)
-            };
-
-            if (expiryDate) {
-                data.expiresAt = new Date(expiryDate).toISOString();
-            }
-
-            try {
-                const response = await fetch(API_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'x-admin-token': adminToken
-                    },
-                    body: JSON.stringify(data)
-                });
-
-                if (!response.ok) {
-                    throw new Error('Failed to create API key');
-                }
-
-                const result = await response.json();
-                showToast('API key đã được tạo thành công!', 'success');
-                createApiKeyForm.reset();
-                allowAutoRegisterCheckbox.checked = true;
-                multipleDevicesPerIpCheckbox.checked = false;
-                maxIpCountInput.value = 5;
-                fetchApiKeys();
-            } catch (error) {
-                showToast('Lỗi: ' + error.message, 'danger');
-            }
-        });
-
-        // Fetch API keys
-        async function fetchApiKeys() {
-            try {
-                apiKeysList.innerHTML = `
+    // Fetch API keys
+    async function fetchApiKeys() {
+      try {
+        apiKeysList.innerHTML = `
           <div class="text-center py-5">
             <div class="spinner-border text-primary" role="status">
               <span class="visually-hidden">Đang tải...</span>
@@ -414,56 +401,72 @@
             <p class="mt-2">Đang tải dữ liệu...</p>
           </div>
         `;
-
-                const response = await fetch(API_URL, {
-                    headers: {
-                        'x-admin-token': adminToken
-                    }
-                });
-
-                if (!response.ok) {
-                    if (response.status === 401) {
-                        showLoginPage();
-                        showToast('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.', 'warning');
-                        return;
-                    }
-                    throw new Error('Failed to fetch API keys');
-                }
-
-                const keys = await response.json();
-
-                if (keys.length === 0) {
-                    apiKeysList.innerHTML = `
+        
+        const response = await fetch(API_URL, {
+          headers: {
+            'x-admin-token': adminToken
+          }
+        });
+        
+        if (!response.ok) {
+          if (response.status === 401) {
+            showLoginPage();
+            showToast('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.', 'warning');
+            return;
+          }
+          throw new Error('Failed to fetch API keys');
+        }
+        
+        const keys = await response.json();
+        
+        if (keys.length === 0) {
+          apiKeysList.innerHTML = `
             <div class="text-center py-4">
               <i class="fas fa-info-circle fa-2x text-muted mb-3"></i>
               <p>Chưa có API key nào. Hãy tạo key mới.</p>
             </div>
           `;
-                    return;
-                }
-
-                renderApiKeys(keys);
-            } catch (error) {
-                apiKeysList.innerHTML = `
+          return;
+        }
+        
+        renderApiKeys(keys);
+      } catch (error) {
+        apiKeysList.innerHTML = `
           <div class="alert alert-danger">
             <i class="fas fa-exclamation-triangle me-2"></i> Lỗi: ${error.message}
           </div>
         `;
-            }
+      }
+    }
+
+    // Render API keys
+    function renderApiKeys(keys) {
+      let html = '';
+      
+      keys.forEach(key => {
+        const isActive = key.isActive === 1;
+        const isExpired = key.expiresAt && new Date(key.expiresAt) < new Date();
+        const status = isActive && !isExpired ? 'active' : 'inactive';
+        const allowAutoRegister = key.allowAutoRegister === 1;
+        const multipleDevicesPerIp = key.multipleDevicesPerIp === 1;
+        
+        // Tính toán phần trăm sử dụng
+        let usagePercent = 0;
+        let usageText = "Không giới hạn";
+        let usageProgressClass = "bg-success";
+        
+        if (key.usageLimit > 0) {
+          usagePercent = Math.min(100, Math.round((key.usageCount / key.usageLimit) * 100));
+          usageText = `${key.usageCount}/${key.usageLimit} (${usagePercent}%)`;
+          
+          if (usagePercent >= 90) {
+            usageProgressClass = "bg-danger";
+          } else if (usagePercent >= 70) {
+            usageProgressClass = "bg-warning";
+          }
         }
-
-        // Render API keys
-        function renderApiKeys(keys) {
-            let html = '';
-
-            keys.forEach(key => {
-                const isActive = key.isActive === 1;
-                const isExpired = key.expiresAt && new Date(key.expiresAt) < new Date();
-                const status = isActive && !isExpired ? 'active' : 'inactive';
-                const allowAutoRegister = key.allowAutoRegister === 1;
-                const multipleDevicesPerIp = key.multipleDevicesPerIp === 1;
-
-                html += `
+        
+        html += `
           <div class="api-key-item" data-id="${key.id}">
             <div class="d-flex justify-content-between align-items-start mb-3">
               <h5 class="mb-0">${key.name}</h5>
@@ -497,6 +500,11 @@
                       <a class="dropdown-item toggle-status-btn" href="#" data-id="${key.id}" data-status="${isActive}">
                         <i class="fas fa-${isActive ? 'ban' : 'check'} me-2"></i> 
                         ${isActive ? 'Vô hiệu hóa' : 'Kích hoạt'}
+                      </a>
+                    </li>
+                    <li>
+                      <a class="dropdown-item reset-usage-btn" href="#" data-id="${key.id}">
+                        <i class="fas fa-redo-alt me-2"></i> Đặt lại số lần sử dụng
                       </a>
                     </li>
                     <li><hr class="dropdown-divider"></li>
@@ -545,7 +553,21 @@
               </div>
             </div>
             
-            <div class="key-value d-flex align-items-center">
+            <div>
+              <div class="small">
+                <i class="fas fa-tachometer-alt me-1"></i> 
+                Giới hạn sử dụng: ${key.usageLimit > 0 ? usageText : 'Không giới hạn'}
+              </div>
+              ${key.usageLimit > 0 ? `
+                <div class="progress usage-progress">
+                  <div class="progress-bar ${usageProgressClass}" role="progressbar" 
+                    style="width: ${usagePercent}%" aria-valuenow="${usagePercent}" 
+                    aria-valuemin="0" aria-valuemax="100"></div>
+                </div>
+              ` : ''}
+            </div>
+            
+            <div class="key-value d-flex align-items-center mt-3">
               <span class="flex-grow-1">${key.key}</span>
               <i class="far fa-copy ms-2 copy-btn" title="Sao chép" data-key="${key.key}"></i>
             </div>
@@ -553,257 +575,284 @@
             <div>
               <div class="mb-1"><i class="fas fa-network-wired me-1"></i> Danh sách IP được phép:</div>
               <div class="ip-tag-container">
-                ${key.ipDetails && key.ipDetails.length > 0 ?
-                        key.ipDetails.map(ip => `
+                ${key.ipDetails && key.ipDetails.length > 0 ? 
+                  key.ipDetails.map(ip => `
                     <div class="tag">
                       ${ip.ip} 
                       ${ip.deviceIdentifier ? `<span class="small text-muted">(${ip.deviceIdentifier})</span>` : ''}
                       <i class="fas fa-times-circle ms-1 remove-ip-btn" data-key-id="${key.id}" data-ip="${ip.ip}" data-device="${ip.deviceIdentifier || ''}"></i>
                     </div>
-                  `).join('') :
-                        '<span class="text-muted small">Không có IP nào được chỉ định</span>'
-                    }
-              </div>
+                  `).join('') : 
+                  '<span class="text-muted small">Không có IP nào được chỉ định</span>'
+                }</div>
             </div>
           </div>
         `;
-            });
+      });
+      
+      apiKeysList.innerHTML = html;
+      
+      // Attach event listeners to the newly created elements
+      attachEventListeners();
+    }
 
-            apiKeysList.innerHTML = html;
-
-            // Attach event listeners to the newly created elements
-            attachEventListeners();
-        }
-
-        // Attach event listeners to dynamically created elements
-        function attachEventListeners() {
-            // Copy button
-            document.querySelectorAll('.copy-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const keyText = btn.getAttribute('data-key');
-                    navigator.clipboard.writeText(keyText).then(() => {
-                        showToast('API key đã được sao chép!', 'info');
-                    });
-                });
-            });
-
-            // Add IP button
-            document.querySelectorAll('.add-ip-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    const keyId = btn.getAttribute('data-id');
-                    addIpKeyId.value = keyId;
-                    deviceIdentifier.value = '';
-                    addIpModal.show();
-                });
-            });
-
-            // Remove IP button
-            document.querySelectorAll('.remove-ip-btn').forEach(btn => {
-                btn.addEventListener('click', async () => {
-                    const keyId = btn.getAttribute('data-key-id');
-                    const ip = btn.getAttribute('data-ip');
-                    const device = btn.getAttribute('data-device');
-
-                    if (confirm(`Bạn có chắc chắn muốn xóa IP "${ip}"${device ? ` (thiết bị: ${device})` : ''} khỏi danh sách?`)) {
-                        try {
-                            let url = `${API_URL}/${keyId}/ip/${encodeURIComponent(ip)}`;
-                            if (device) {
-                                url += `?deviceIdentifier=${encodeURIComponent(device)}`;
-                            }
-
-                            const response = await fetch(url, {
-                                method: 'DELETE',
-                                headers: {
-                                    'x-admin-token': adminToken
-                                }
-                            });
-
-                            if (!response.ok) {
-                                throw new Error('Failed to remove IP');
-                            }
-
-                            showToast('Đã xóa IP thành công!', 'success');
-                            fetchApiKeys();
-                        } catch (error) {
-                            showToast('Lỗi: ' + error.message, 'danger');
-                        }
-                    }
-                });
-            });
-
-            // Toggle auto-register button
-            document.querySelectorAll('.toggle-auto-register-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    e.preventDefault();
-                    const keyId = btn.getAttribute('data-id');
-                    const currentAutoRegister = btn.getAttribute('data-auto-register') === 'true';
-                    const newAutoRegister = !currentAutoRegister;
-
-                    try {
-                        const response = await fetch(`${API_URL}/${keyId}`, {
-                            method: 'PUT',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'x-admin-token': adminToken
-                            },
-                            body: JSON.stringify({
-                                allowAutoRegister: newAutoRegister
-                            })
-                        });
-
-                        if (!response.ok) {
-                            throw new Error('Failed to update auto-register setting');
-                        }
-
-                        showToast(`Tự động đăng ký IP đã được ${newAutoRegister ? 'bật' : 'tắt'}!`, 'success');
-                        fetchApiKeys();
-                    } catch (error) {
-                        showToast('Lỗi: ' + error.message, 'danger');
-                    }
-                });
-            });
-
-            // Toggle multiple devices per IP button
-            document.querySelectorAll('.toggle-multiple-devices-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    e.preventDefault();
-                    const keyId = btn.getAttribute('data-id');
-                    const currentMultipleDevices = btn.getAttribute('data-multiple-devices') === 'true';
-                    const newMultipleDevices = !currentMultipleDevices;
-
-                    try {
-                        const response = await fetch(`${API_URL}/${keyId}`, {
-                            method: 'PUT',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'x-admin-token': adminToken
-                            },
-                            body: JSON.stringify({
-                                multipleDevicesPerIp: newMultipleDevices
-                            })
-                        });
-
-                        if (!response.ok) {
-                            throw new Error('Failed to update multiple devices setting');
-                        }
-
-                        showToast(`Nhiều thiết bị/IP đã được ${newMultipleDevices ? 'bật' : 'tắt'}!`, 'success');
-                        fetchApiKeys();
-                    } catch (error) {
-                        showToast('Lỗi: ' + error.message, 'danger');
-                    }
-                });
-            });
-
-            // Toggle status button
-            document.querySelectorAll('.toggle-status-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    e.preventDefault();
-                    const keyId = btn.getAttribute('data-id');
-                    const currentStatus = btn.getAttribute('data-status') === 'true';
-                    const newStatus = !currentStatus;
-
-                    try {
-                        const response = await fetch(`${API_URL}/${keyId}`, {
-                            method: 'PUT',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'x-admin-token': adminToken
-                            },
-                            body: JSON.stringify({
-                                isActive: newStatus ? 1 : 0
-                            })
-                        });
-
-                        if (!response.ok) {
-                            throw new Error('Failed to update status');
-                        }
-
-                        showToast(`API key đã được ${newStatus ? 'kích hoạt' : 'vô hiệu hóa'}!`, 'success');
-                        fetchApiKeys();
-                    } catch (error) {
-                        showToast('Lỗi: ' + error.message, 'danger');
-                    }
-                });
-            });
-
-            // Delete key button
-            document.querySelectorAll('.delete-key-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    e.preventDefault();
-                    const keyId = btn.getAttribute('data-id');
-
-                    if (confirm('Bạn có chắc chắn muốn xóa API key này?')) {
-                        try {
-                            const response = await fetch(`${API_URL}/${keyId}`, {
-                                method: 'DELETE',
-                                headers: {
-                                    'x-admin-token': adminToken
-                                }
-                            });
-
-                            if (!response.ok) {
-                                throw new Error('Failed to delete API key');
-                            }
-
-                            showToast('API key đã được xóa thành công!', 'success');
-                            fetchApiKeys();
-                        } catch (error) {
-                            showToast('Lỗi: ' + error.message, 'danger');
-                        }
-                    }
-                });
-            });
-        }
-
-        // Save new IP address
-        saveNewIpBtn.addEventListener('click', async () => {
-            const keyId = addIpKeyId.value;
-            const ip = newIpAddress.value.trim();
-            const device = deviceIdentifier.value.trim();
-
-            if (!ip) {
-                showToast('Vui lòng nhập địa chỉ IP!', 'warning');
-                return;
-            }
-
-            try {
-                const response = await fetch(`${API_URL}/${keyId}/ip`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'x-admin-token': adminToken
-                    },
-                    body: JSON.stringify({
-                        ip,
-                        deviceIdentifier: device || null
-                    })
-                });
-
-                if (!response.ok) {
-                    throw new Error('Failed to add IP');
-                }
-
-                addIpModal.hide();
-                newIpAddress.value = '';
-                deviceIdentifier.value = '';
-                showToast('Đã thêm IP thành công!', 'success');
-                fetchApiKeys();
-            } catch (error) {
-                showToast('Lỗi: ' + error.message, 'danger');
-            }
+    // Attach event listeners to dynamically created elements
+    function attachEventListeners() {
+      // Copy button
+      document.querySelectorAll('.copy-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const keyText = btn.getAttribute('data-key');
+          navigator.clipboard.writeText(keyText).then(() => {
+            showToast('API key đã được sao chép!', 'info');
+          });
         });
+      });
+      
+      // Add IP button
+      document.querySelectorAll('.add-ip-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          const keyId = btn.getAttribute('data-id');
+          addIpKeyId.value = keyId;
+          deviceIdentifier.value = '';
+          addIpModal.show();
+        });
+      });
+      
+      // Remove IP button
+      document.querySelectorAll('.remove-ip-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const keyId = btn.getAttribute('data-key-id');
+          const ip = btn.getAttribute('data-ip');
+          const device = btn.getAttribute('data-device');
+          
+          if (confirm(`Bạn có chắc chắn muốn xóa IP "${ip}"${device ? ` (thiết bị: ${device})` : ''} khỏi danh sách?`)) {
+            try {
+              let url = `${API_URL}/${keyId}/ip/${encodeURIComponent(ip)}`;
+              if (device) {
+                url += `?deviceIdentifier=${encodeURIComponent(device)}`;
+              }
+              
+              const response = await fetch(url, {
+                method: 'DELETE',
+                headers: {
+                  'x-admin-token': adminToken
+                }
+              });
+              
+              if (!response.ok) {
+                throw new Error('Failed to remove IP');
+              }
+              
+              showToast('Đã xóa IP thành công!', 'success');
+              fetchApiKeys();
+            } catch (error) {
+              showToast('Lỗi: ' + error.message, 'danger');
+            }
+          }
+        });
+      });
+      
+      // Toggle auto-register button
+      document.querySelectorAll('.toggle-auto-register-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          const keyId = btn.getAttribute('data-id');
+          const currentAutoRegister = btn.getAttribute('data-auto-register') === 'true';
+          const newAutoRegister = !currentAutoRegister;
+          
+          try {
+            const response = await fetch(`${API_URL}/${keyId}`, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-admin-token': adminToken
+              },
+              body: JSON.stringify({
+                allowAutoRegister: newAutoRegister
+              })
+            });
+            
+            if (!response.ok) {
+              throw new Error('Failed to update auto-register setting');
+            }
+            
+            showToast(`Tự động đăng ký IP đã được ${newAutoRegister ? 'bật' : 'tắt'}!`, 'success');
+            fetchApiKeys();
+          } catch (error) {
+            showToast('Lỗi: ' + error.message, 'danger');
+          }
+        });
+      });
+      
+      // Toggle multiple devices per IP button
+      document.querySelectorAll('.toggle-multiple-devices-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          const keyId = btn.getAttribute('data-id');
+          const currentMultipleDevices = btn.getAttribute('data-multiple-devices') === 'true';
+          const newMultipleDevices = !currentMultipleDevices;
+          
+          try {
+            const response = await fetch(`${API_URL}/${keyId}`, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-admin-token': adminToken
+              },
+              body: JSON.stringify({
+                multipleDevicesPerIp: newMultipleDevices
+              })
+            });
+            
+            if (!response.ok) {
+              throw new Error('Failed to update multiple devices setting');
+            }
+            
+            showToast(`Nhiều thiết bị/IP đã được ${newMultipleDevices ? 'bật' : 'tắt'}!`, 'success');
+            fetchApiKeys();
+          } catch (error) {
+            showToast('Lỗi: ' + error.message, 'danger');
+          }
+        });
+      });
+      
+      // Toggle status button
+      document.querySelectorAll('.toggle-status-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          const keyId = btn.getAttribute('data-id');
+          const currentStatus = btn.getAttribute('data-status') === 'true';
+          const newStatus = !currentStatus;
+          
+          try {
+            const response = await fetch(`${API_URL}/${keyId}`, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-admin-token': adminToken
+              },
+              body: JSON.stringify({
+                isActive: newStatus ? 1 : 0
+              })
+            });
+            
+            if (!response.ok) {
+              throw new Error('Failed to update status');
+            }
+            
+            showToast(`API key đã được ${newStatus ? 'kích hoạt' : 'vô hiệu hóa'}!`, 'success');
+            fetchApiKeys();
+          } catch (error) {
+            showToast('Lỗi: ' + error.message, 'danger');
+          }
+        });
+      });
+      
+      // Reset usage count button
+      document.querySelectorAll('.reset-usage-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          const keyId = btn.getAttribute('data-id');
+          
+          if (confirm('Bạn có chắc chắn muốn đặt lại số lần sử dụng về 0?')) {
+            try {
+              const response = await fetch(`${API_URL}/${keyId}/reset-usage`, {
+                method: 'POST',
+                headers: {
+                  'x-admin-token': adminToken
+                }
+              });
+              
+              if (!response.ok) {
+                throw new Error('Failed to reset usage count');
+              }
+              
+              showToast('Đã đặt lại số lần sử dụng!', 'success');
+              fetchApiKeys();
+            } catch (error) {
+              showToast('Lỗi: ' + error.message, 'danger');
+            }
+          }
+        });
+      });
+      
+      // Delete key button
+      document.querySelectorAll('.delete-key-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          const keyId = btn.getAttribute('data-id');
+          
+          if (confirm('Bạn có chắc chắn muốn xóa API key này?')) {
+            try {
+              const response = await fetch(`${API_URL}/${keyId}`, {
+                method: 'DELETE',
+                headers: {
+                  'x-admin-token': adminToken
+                }
+              });
+              
+              if (!response.ok) {
+                throw new Error('Failed to delete API key');
+              }
+              
+              showToast('API key đã được xóa thành công!', 'success');
+              fetchApiKeys();
+            } catch (error) {
+              showToast('Lỗi: ' + error.message, 'danger');
+            }
+          }
+        });
+      });
+    }
 
-        // Refresh keys button
-        refreshKeysBtn.addEventListener('click', fetchApiKeys);
+    // Save new IP address
+    saveNewIpBtn.addEventListener('click', async () => {
+      const keyId = addIpKeyId.value;
+      const ip = newIpAddress.value.trim();
+      const device = deviceIdentifier.value.trim();
+      
+      if (!ip) {
+        showToast('Vui lòng nhập địa chỉ IP!', 'warning');
+        return;
+      }
+      
+      try {
+        const response = await fetch(`${API_URL}/${keyId}/ip`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-admin-token': adminToken
+          },
+          body: JSON.stringify({ 
+            ip,
+            deviceIdentifier: device || null
+          })
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to add IP');
+        }
+        
+        addIpModal.hide();
+        newIpAddress.value = '';
+        deviceIdentifier.value = '';
+        showToast('Đã thêm IP thành công!', 'success');
+        fetchApiKeys();
+      } catch (error) {
+        showToast('Lỗi: ' + error.message, 'danger');
+      }
+    });
 
-        // Show toast notification
-        function showToast(message, type = 'info') {
-            const toastContainer = document.querySelector('.toast-container');
-            const id = 'toast-' + Date.now();
+    // Refresh keys button
+    refreshKeysBtn.addEventListener('click', fetchApiKeys);
 
-            const toastHtml = `
+    // Show toast notification
+    function showToast(message, type = 'info') {
+      const toastContainer = document.querySelector('.toast-container');
+      const id = 'toast-' + Date.now();
+      
+      const toastHtml = `
         <div id="${id}" class="toast align-items-center text-white bg-${type} border-0" role="alert" aria-live="assertive" aria-atomic="true">
           <div class="d-flex">
             <div class="toast-body">
@@ -813,17 +862,16 @@
           </div>
         </div>
       `;
-
-            toastContainer.insertAdjacentHTML('beforeend', toastHtml);
-            const toastElement = document.getElementById(id);
-            const toast = new bootstrap.Toast(toastElement, { autohide: true, delay: 3000 });
-            toast.show();
-
-            toastElement.addEventListener('hidden.bs.toast', () => {
-                toastElement.remove();
-            });
-        }
-    </script>
+      
+      toastContainer.insertAdjacentHTML('beforeend', toastHtml);
+      const toastElement = document.getElementById(id);
+      const toast = new bootstrap.Toast(toastElement, { autohide: true, delay: 3000 });
+      toast.show();
+      
+      toastElement.addEventListener('hidden.bs.toast', () => {
+        toastElement.remove();
+      });
+    }
+  </script>
 </body>
-
 </html>
