@@ -129,6 +129,83 @@ const verifyApiKey = async (req, res, next) => {
   }
 };
 
+// Middleware để xác thực API key từ URL query parameter
+const verifyApiKeyFromURL = async (req, res, next) => {
+  // Lấy API key từ query parameter 'key'
+  const apiKey = req.query.key;
+  console.log('API Key from URL:', apiKey); // Debugging
+  const clientIP = req.ip || req.connection.remoteAddress;
+  
+  if (!apiKey) {
+    return res.status(401).json({ error: 'API key is required' });
+  }
+
+  try {
+    // Get API key data
+    const keyData = await db.get('SELECT * FROM apikeys WHERE key = ?', [apiKey]);
+    
+    if (!keyData) {
+      return res.status(401).json({ error: 'Invalid API key' });
+    }
+    
+    if (!keyData.isActive) {
+      return res.status(403).json({ error: 'API key is inactive' });
+    }
+    
+    if (keyData.expiresAt && new Date(keyData.expiresAt) < new Date()) {
+      return res.status(403).json({ error: 'API key has expired' });
+    }
+    
+    // Check if the client IP is in the allowed IPs list
+    const allowedIPs = await db.all('SELECT ip FROM allowed_ips WHERE apikey_id = ?', [keyData.id]);
+    const ipList = allowedIPs.map(item => item.ip);
+    
+    if (ipList.length > 0 && !ipList.includes(clientIP)) {
+      return res.status(403).json({ error: 'IP not authorized for this API key' });
+    }
+    
+    // Update usage statistics
+    await db.run(
+      'UPDATE apikeys SET usageCount = usageCount + 1, lastUsed = datetime("now") WHERE id = ?',
+      [keyData.id]
+    );
+    
+    // Attach the key data to the request object
+    req.apiKeyData = {
+      ...keyData,
+      allowedIPs: ipList
+    };
+    
+    next();
+  } catch (error) {
+    console.error('API key verification error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Route để xác thực API key thông qua URL
+app.get('/verify', verifyApiKeyFromURL, (req, res) => {
+  res.json({ 
+    valid: true,
+    message: 'API key is valid',
+    key: {
+      name: req.apiKeyData.name,
+      expiresAt: req.apiKeyData.expiresAt,
+      usageCount: req.apiKeyData.usageCount
+    },
+    clientIP: req.ip || req.connection.remoteAddress
+  });
+});
+
+// API routes với xác thực qua URL parameter
+app.get('/api/data-url', verifyApiKeyFromURL, (req, res) => {
+  res.json({ 
+    message: 'You have access to protected data via URL',
+    keyName: req.apiKeyData.name,
+    clientIP: req.ip || req.connection.remoteAddress
+  });
+});
+
 // Admin routes for managing API keys
 const adminRouter = express.Router();
 
@@ -418,81 +495,7 @@ app.use('/api', apiRouter);
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
-const verifyApiKeyFromURL = async (req, res, next) => {
-    // Lấy API key từ query parameter 'key'
-    const apiKey = req.query.key;
-    const clientIP = req.ip || req.connection.remoteAddress;
-    
-    if (!apiKey) {
-      return res.status(401).json({ error: 'API key is required' });
-    }
-  
-    try {
-      // Get API key data
-      const keyData = await db.get('SELECT * FROM apikeys WHERE key = ?', [apiKey]);
-      
-      if (!keyData) {
-        return res.status(401).json({ error: 'Invalid API key' });
-      }
-      
-      if (!keyData.isActive) {
-        return res.status(403).json({ error: 'API key is inactive' });
-      }
-      
-      if (keyData.expiresAt && new Date(keyData.expiresAt) < new Date()) {
-        return res.status(403).json({ error: 'API key has expired' });
-      }
-      
-      // Check if the client IP is in the allowed IPs list
-      const allowedIPs = await db.all('SELECT ip FROM allowed_ips WHERE apikey_id = ?', [keyData.id]);
-      const ipList = allowedIPs.map(item => item.ip);
-      
-      if (ipList.length > 0 && !ipList.includes(clientIP)) {
-        return res.status(403).json({ error: 'IP not authorized for this API key' });
-      }
-      
-      // Update usage statistics
-      await db.run(
-        'UPDATE apikeys SET usageCount = usageCount + 1, lastUsed = datetime("now") WHERE id = ?',
-        [keyData.id]
-      );
-      
-      // Attach the key data to the request object
-      req.apiKeyData = {
-        ...keyData,
-        allowedIPs: ipList
-      };
-      
-      next();
-    } catch (error) {
-      console.error('API key verification error:', error);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  };
-  
-  // Route để xác thực API key thông qua URL
-  app.get('/verify', verifyApiKeyFromURL, (req, res) => {
-    res.json({ 
-      valid: true,
-      message: 'API key is valid',
-      key: {
-        name: req.apiKeyData.name,
-        expiresAt: req.apiKeyData.expiresAt,
-        usageCount: req.apiKeyData.usageCount
-      },
-      clientIP: req.ip || req.connection.remoteAddress
-    });
-  });
-  
-  // API routes với xác thực qua URL parameter
-  app.get('/api/data-url', verifyApiKeyFromURL, (req, res) => {
-    res.json({ 
-      message: 'You have access to protected data via URL',
-      keyName: req.apiKeyData.name,
-      clientIP: req.ip || req.connection.remoteAddress
-    });
-  });
-  
+
 // Start the server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
