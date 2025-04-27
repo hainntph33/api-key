@@ -114,123 +114,128 @@ function generateMachineIdentifier(req) {
 }
 
 // Middleware to verify API key from URL with enhanced machine and IP restrictions
+// Middleware để xác thực API key từ URL query parameter với kiểm soát giới hạn IP và máy
 const verifyApiKeyFromURL = async (req, res, next) => {
-  const apiKey = req.query.key;
-  const clientIP = getClientIp(req);
-  const machineIdentifier = generateMachineIdentifier(req);
+    const apiKey = req.query.key;
+    const clientIP = getClientIp(req);
+    
+    console.log('API Key from URL:', apiKey);
+    console.log('Client IP:', clientIP);
+    
+    if (!apiKey) {
+      return res.status(401).json({ error: 'API key is required' });
+    }
   
-  console.log('API Key from URL:', apiKey);
-  console.log('Client IP:', clientIP);
-  console.log('Machine Identifier:', machineIdentifier);
-  
-  if (!apiKey) {
-    return res.status(401).json({ error: 'API key is required' });
-  }
-
-  try {
-    // Get API key data
-    const keyData = await db.get('SELECT * FROM apikeys WHERE key = ?', [apiKey]);
-    
-    if (!keyData) {
-      return res.status(401).json({ error: 'Invalid API key' });
-    }
-    
-    if (!keyData.isActive) {
-      return res.status(403).json({ error: 'API key is inactive' });
-    }
-    
-    if (keyData.expiresAt && new Date(keyData.expiresAt) < new Date()) {
-      return res.status(403).json({ error: 'API key has expired' });
-    }
-    
-    // Check IP and machine restrictions
-    const existingIP = await db.get(
-      'SELECT * FROM allowed_ips WHERE apikey_id = ? AND ip = ? AND machine_identifier = ?', 
-      [keyData.id, clientIP, machineIdentifier]
-    );
-    
-    // If no exact match, check further restrictions
-    if (!existingIP) {
-      // Check machine count restrictions
-      const machineCount = await db.get(
-        'SELECT COUNT(DISTINCT machine_identifier) as count FROM allowed_ips WHERE apikey_id = ?', 
-        [keyData.id]
+    try {
+      // Lấy thông tin API key
+      const keyData = await db.get('SELECT * FROM apikeys WHERE key = ?', [apiKey]);
+      
+      if (!keyData) {
+        return res.status(401).json({ error: 'Invalid API key' });
+      }
+      
+      if (!keyData.isActive) {
+        return res.status(403).json({ error: 'API key is inactive' });
+      }
+      
+      if (keyData.expiresAt && new Date(keyData.expiresAt) < new Date()) {
+        return res.status(403).json({ error: 'API key has expired' });
+      }
+      
+      // Tạo mã định danh máy duy nhất
+      const machineIdentifier = crypto.createHash('sha256')
+        .update(`${req.headers['user-agent']}:${clientIP}`)
+        .digest('hex');
+      
+      // Kiểm tra xem IP và máy đã được đăng ký chưa
+      const existingAccess = await db.get(
+        'SELECT * FROM allowed_ips WHERE apikey_id = ? AND ip = ?', 
+        [keyData.id, clientIP]
       );
       
-      // Check IP count restrictions
-      const ipCount = await db.get(
-        'SELECT COUNT(*) as count FROM allowed_ips WHERE apikey_id = ?', 
-        [keyData.id]
-      );
-      
-      // Determine if auto-registration is allowed
-      if (keyData.allowAutoRegister === 1) {
-        // Check machine count limit
+      // Nếu chưa đăng ký
+      if (!existingAccess) {
+        // Kiểm tra số lượng máy đã đăng ký
+        const machineCount = await db.get(
+          'SELECT COUNT(DISTINCT machine_identifier) as count FROM allowed_ips WHERE apikey_id = ?', 
+          [keyData.id]
+        );
+        
+        // Kiểm tra số lượng IP đã đăng ký
+        const ipCount = await db.get(
+          'SELECT COUNT(*) as count FROM allowed_ips WHERE apikey_id = ?', 
+          [keyData.id]
+        );
+        
+        // Nếu số lượng máy vượt quá giới hạn
         if (machineCount.count >= keyData.maxMachineCount) {
           return res.status(403).json({ 
-            error: 'Maximum machine limit reached for this API key',
-            maxMachines: keyData.maxMachineCount,
-            currentMachineCount: machineCount.count,
-            message: 'Please contact the administrator to modify machine access'
+            error: 'Đã đạt giới hạn số lượng máy cho API key này',
+            maxMachines: keyData.maxMachineCount
           });
         }
         
-        // Check IP count limit
-        if (ipCount.count >= keyData.maxIpCount) {
+        // Nếu số lượng IP vượt quá giới hạn
+        if (ipCount.count >= (keyData.maxMachineCount * keyData.maxIpCount)) {
           return res.status(403).json({ 
-            error: 'Maximum IP limit reached for this API key',
-            maxIps: keyData.maxIpCount,
-            currentIpCount: ipCount.count,
-            message: 'Please contact the administrator to remove unused IPs'
+            error: 'Đã đạt giới hạn số lượng IP cho API key này',
+            maxIPs: keyData.maxMachineCount * keyData.maxIpCount
           });
         }
         
-        // Auto-register the new IP and machine
+        // Thêm IP và máy mới
         await db.run(
           'INSERT INTO allowed_ips (apikey_id, ip, machine_identifier, lastUsed) VALUES (?, ?, ?, datetime("now"))',
           [keyData.id, clientIP, machineIdentifier]
         );
-        console.log(`Auto-added IP ${clientIP} with machine ${machineIdentifier} for key ${apiKey}`);
+        
+        console.log(`Đã đăng ký IP ${clientIP} cho máy ${machineIdentifier}`);
       } else {
-        // Auto-registration disabled
-        return res.status(403).json({ 
-          error: 'IP or machine not authorized for this API key and auto-registration is disabled',
-          clientIP: clientIP,
-          machineIdentifier: machineIdentifier
-        });
+        // Nếu IP đã tồn tại, kiểm tra máy
+        const machineAccess = await db.get(
+          'SELECT * FROM allowed_ips WHERE apikey_id = ? AND ip = ? AND machine_identifier = ?', 
+          [keyData.id, clientIP, machineIdentifier]
+        );
+        
+        // Nếu máy không khớp
+        if (!machineAccess) {
+          return res.status(403).json({ 
+            error: 'IP này đã được đăng ký cho một máy khác',
+            clientIP: clientIP
+          });
+        }
+        
+        // Cập nhật lần sử dụng cuối
+        await db.run(
+          'UPDATE allowed_ips SET lastUsed = datetime("now") WHERE apikey_id = ? AND ip = ? AND machine_identifier = ?',
+          [keyData.id, clientIP, machineIdentifier]
+        );
       }
-    } else {
-      // Update last used timestamp for this IP and machine
+      
+      // Cập nhật số lần sử dụng của API key
       await db.run(
-        'UPDATE allowed_ips SET lastUsed = datetime("now") WHERE apikey_id = ? AND ip = ? AND machine_identifier = ?',
-        [keyData.id, clientIP, machineIdentifier]
+        'UPDATE apikeys SET usageCount = usageCount + 1, lastUsed = datetime("now") WHERE id = ?',
+        [keyData.id]
       );
+      
+      // Lấy danh sách các IP và máy đã được phép
+      const allowedAccess = await db.all(
+        'SELECT ip, machine_identifier FROM allowed_ips WHERE apikey_id = ?', 
+        [keyData.id]
+      );
+      
+      // Gắn thông tin key vào request
+      req.apiKeyData = {
+        ...keyData,
+        allowedAccess: allowedAccess
+      };
+      
+      next();
+    } catch (error) {
+      console.error('Lỗi xác thực API key:', error);
+      res.status(500).json({ error: 'Lỗi máy chủ nội bộ' });
     }
-    
-    // Update usage statistics for the API key
-    await db.run(
-      'UPDATE apikeys SET usageCount = usageCount + 1, lastUsed = datetime("now") WHERE id = ?',
-      [keyData.id]
-    );
-    
-    // Get the updated allowed IPs and machines
-    const allowedAccess = await db.all(
-      'SELECT ip, machine_identifier FROM allowed_ips WHERE apikey_id = ?', 
-      [keyData.id]
-    );
-    
-    // Attach the key data to the request object
-    req.apiKeyData = {
-      ...keyData,
-      allowedAccess: allowedAccess
-    };
-    
-    next();
-  } catch (error) {
-    console.error('API key verification error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
+  };
 
 // Modify the verification route to show more details
 app.get('/verify', verifyApiKeyFromURL, (req, res) => {
