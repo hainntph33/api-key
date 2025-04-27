@@ -309,7 +309,80 @@ adminRouter.get('/keys/:id', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
-
+const verifyApiKeyAndAutoAddIP = async (req, res, next) => {
+    const apiKey = req.query.key;
+    const clientIP = req.ip || req.connection.remoteAddress;
+    
+    console.log('API Key from URL:', apiKey); 
+    console.log('Client IP:', clientIP);
+    
+    if (!apiKey) {
+      return res.status(401).json({ error: 'API key is required' });
+    }
+  
+    try {
+      // Get API key data
+      const keyData = await db.get('SELECT * FROM apikeys WHERE key = ?', [apiKey]);
+      
+      if (!keyData) {
+        return res.status(401).json({ error: 'Invalid API key' });
+      }
+      
+      if (!keyData.isActive) {
+        return res.status(403).json({ error: 'API key is inactive' });
+      }
+      
+      if (keyData.expiresAt && new Date(keyData.expiresAt) < new Date()) {
+        return res.status(403).json({ error: 'API key has expired' });
+      }
+      
+      // Kiểm tra nếu IP chưa được thêm vào danh sách, thì thêm vào
+      const existingIp = await db.get(
+        'SELECT * FROM allowed_ips WHERE apikey_id = ? AND ip = ?',
+        [keyData.id, clientIP]
+      );
+      
+      if (!existingIp) {
+        // Thêm IP hiện tại vào danh sách được phép
+        await db.run(
+          'INSERT INTO allowed_ips (apikey_id, ip) VALUES (?, ?)',
+          [keyData.id, clientIP]
+        );
+        console.log(`Auto-added IP ${clientIP} for key ${apiKey}`);
+      }
+      
+      // Lấy danh sách IP được phép của key này
+      const allowedIPs = await db.all('SELECT ip FROM allowed_ips WHERE apikey_id = ?', [keyData.id]);
+      const ipList = allowedIPs.map(item => item.ip);
+      
+      // Update usage statistics
+      await db.run(
+        'UPDATE apikeys SET usageCount = usageCount + 1, lastUsed = datetime("now") WHERE id = ?',
+        [keyData.id]
+      );
+      
+      // Attach the key data to the request object
+      req.apiKeyData = {
+        ...keyData,
+        allowedIPs: ipList
+      };
+      
+      next();
+    } catch (error) {
+      console.error('API key verification error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  };
+  
+  // Route sử dụng middleware tự động thêm IP
+  app.get('/api/auto-register', verifyApiKeyAndAutoAddIP, (req, res) => {
+    res.json({ 
+      message: 'Your IP has been automatically registered with this API key',
+      keyName: req.apiKeyData.name,
+      registeredIP: req.ip || req.connection.remoteAddress,
+      allowedIPs: req.apiKeyData.allowedIPs
+    });
+  });
 // Update an API key
 adminRouter.put('/keys/:id', async (req, res) => {
   try {
