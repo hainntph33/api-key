@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: api-key-manager
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: NODE_ENV
+        value: production
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: MONGO_URI
+        sync: false
