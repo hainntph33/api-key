@@ -51,6 +51,10 @@
             font-weight: 500;
         }
 
+        .table th {
+            font-weight: 600;
+        }
+
         .badge {
             font-weight: 500;
         }
@@ -80,16 +84,6 @@
             margin-right: 5px;
             margin-bottom: 5px;
             font-size: 0.85rem;
-        }
-
-        .machine-tag {
-            background-color: #f1f3f5;
-            padding: 4px 8px;
-            border-radius: 4px;
-            margin-right: 5px;
-            margin-bottom: 5px;
-            font-size: 0.8rem;
-            display: inline-block;
         }
 
         .login-form {
@@ -195,26 +189,6 @@
                                     <label for="expiryDate" class="form-label">Ngày hết hạn (không bắt buộc)</label>
                                     <input type="date" class="form-control" id="expiryDate">
                                 </div>
-                                <div class="mb-3">
-                                    <label for="maxMachineCount" class="form-label">Số lượng máy tối đa</label>
-                                    <input type="number" class="form-control" id="maxMachineCount" value="1" min="1">
-                                    <div class="form-text">Số lượng máy/thiết bị được phép sử dụng API key</div>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="maxIpCount" class="form-label">Số lượng IP tối đa cho mỗi máy</label>
-                                    <input type="number" class="form-control" id="maxIpCount" value="5" min="1">
-                                    <div class="form-text">Số lượng IP được phép cho mỗi máy</div>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="ipRegistrationStrategy" class="form-label">Chiến lược đăng ký IP</label>
-                                    <select class="form-select" id="ipRegistrationStrategy">
-                                        <option value="strict">Nghiêm ngặt (Strict)</option>
-                                        <option value="flexible">Linh hoạt (Flexible)</option>
-                                    </select>
-                                    <div class="form-text">
-                                        Chế độ 'Nghiêm ngặt' hạn chế hơn so với 'Linh hoạt'
-                                    </div>
-                                </div>
                                 <div class="form-check mb-3">
                                     <input class="form-check-input" type="checkbox" id="allowAutoRegister" checked>
                                     <label class="form-check-label" for="allowAutoRegister">
@@ -224,6 +198,21 @@
                                         Khi bật, bất kỳ ai biết API key đều có thể tự đăng ký IP của họ. Khi tắt, chỉ có
                                         admin mới có thể thêm IP được phép.
                                     </div>
+                                </div>
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="checkbox" id="multipleDevicesPerIp">
+                                    <label class="form-check-label" for="multipleDevicesPerIp">
+                                        Cho phép nhiều thiết bị trên cùng một IP
+                                    </label>
+                                    <div class="form-text">
+                                        Khi bật, nhiều thiết bị có thể sử dụng cùng một IP. Khi tắt, mỗi IP chỉ có thể
+                                        được sử dụng bởi một thiết bị.
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="maxIpCount" class="form-label">Số lượng IP tối đa</label>
+                                    <input type="number" class="form-control" id="maxIpCount" value="5" min="1"
+                                        max="100">
                                 </div>
                                 <div class="d-grid">
                                     <button type="submit" class="btn btn-primary">
@@ -278,11 +267,10 @@
                                     placeholder="192.168.1.1">
                             </div>
                             <div class="mb-3">
-                                <label for="machineIdentifier" class="form-label">Mã máy (Không bắt buộc)</label>
-                                <input type="text" class="form-control" id="machineIdentifier"
-                                    placeholder="Để trống để sinh động mã máy">
+                                <label for="deviceIdentifier" class="form-label">ID Thiết bị (không bắt buộc)</label>
+                                <input type="text" class="form-control" id="deviceIdentifier" placeholder="device123">
                                 <div class="form-text">
-                                    Để trống để hệ thống tự động sinh mã máy. Nhập thủ công nếu muốn quản lý chi tiết.
+                                    Để trống nếu không cần chỉ định ID thiết bị cụ thể.
                                 </div>
                             </div>
                         </form>
@@ -314,9 +302,11 @@
         const addIpForm = document.getElementById('addIpForm');
         const addIpKeyId = document.getElementById('addIpKeyId');
         const newIpAddress = document.getElementById('newIpAddress');
-        const machineIdentifier = document.getElementById('machineIdentifier');
+        const deviceIdentifier = document.getElementById('deviceIdentifier');
         const saveNewIpBtn = document.getElementById('saveNewIpBtn');
         const allowAutoRegisterCheckbox = document.getElementById('allowAutoRegister');
+        const multipleDevicesPerIpCheckbox = document.getElementById('multipleDevicesPerIp');
+        const maxIpCountInput = document.getElementById('maxIpCount');
 
         // Bootstrap modals
         const addIpModal = new bootstrap.Modal(document.getElementById('addIpModal'));
@@ -367,11 +357,9 @@
             const ipAddressesText = document.getElementById('ipAddresses').value;
             const expiryDate = document.getElementById('expiryDate').value;
             const allowAutoRegister = document.getElementById('allowAutoRegister').checked;
-            const maxMachineCount = parseInt(document.getElementById('maxMachineCount').value);
-            const maxIpCount = parseInt(document.getElementById('maxIpCount').value);
-            const ipRegistrationStrategy = document.getElementById('ipRegistrationStrategy').value;
+            const multipleDevicesPerIp = document.getElementById('multipleDevicesPerIp').checked;
+            const maxIpCount = document.getElementById('maxIpCount').value;
 
-            // Xử lý tạo API Key
             const allowedIPs = ipAddressesText
                 .split('\n')
                 .map(ip => ip.trim())
@@ -381,9 +369,8 @@
                 name,
                 allowedIPs,
                 allowAutoRegister,
-                maxMachineCount,
-                maxIpCount,
-                ipRegistrationStrategy
+                multipleDevicesPerIp,
+                maxIpCount: parseInt(maxIpCount, 10)
             };
 
             if (expiryDate) {
@@ -401,16 +388,15 @@
                 });
 
                 if (!response.ok) {
-                    throw new Error('Không thể tạo API key');
+                    throw new Error('Failed to create API key');
                 }
 
                 const result = await response.json();
                 showToast('API key đã được tạo thành công!', 'success');
                 createApiKeyForm.reset();
                 allowAutoRegisterCheckbox.checked = true;
-                document.getElementById('maxMachineCount').value = 1;
-                document.getElementById('maxIpCount').value = 5;
-                document.getElementById('ipRegistrationStrategy').value = 'strict';
+                multipleDevicesPerIpCheckbox.checked = false;
+                maxIpCountInput.value = 5;
                 fetchApiKeys();
             } catch (error) {
                 showToast('Lỗi: ' + error.message, 'danger');
@@ -441,7 +427,7 @@
                         showToast('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.', 'warning');
                         return;
                     }
-                    throw new Error('Không thể tải danh sách API key');
+                    throw new Error('Failed to fetch API keys');
                 }
 
                 const keys = await response.json();
@@ -475,6 +461,7 @@
                 const isExpired = key.expiresAt && new Date(key.expiresAt) < new Date();
                 const status = isActive && !isExpired ? 'active' : 'inactive';
                 const allowAutoRegister = key.allowAutoRegister === 1;
+                const multipleDevicesPerIp = key.multipleDevicesPerIp === 1;
 
                 html += `
           <div class="api-key-item" data-id="${key.id}">
@@ -498,6 +485,12 @@
                       <a class="dropdown-item toggle-auto-register-btn" href="#" data-id="${key.id}" data-auto-register="${allowAutoRegister}">
                         <i class="fas fa-${allowAutoRegister ? 'lock' : 'unlock'} me-2"></i> 
                         ${allowAutoRegister ? 'Tắt' : 'Bật'} tự động đăng ký IP
+                      </a>
+                    </li>
+                    <li>
+                      <a class="dropdown-item toggle-multiple-devices-btn" href="#" data-id="${key.id}" data-multiple-devices="${multipleDevicesPerIp}">
+                        <i class="fas fa-${multipleDevicesPerIp ? 'lock' : 'unlock'} me-2"></i> 
+                        ${multipleDevicesPerIp ? 'Tắt' : 'Bật'} nhiều thiết bị/IP
                       </a>
                     </li>
                     <li>
@@ -542,17 +535,13 @@
                 <i class="fas fa-${allowAutoRegister ? 'unlock' : 'lock'} me-1"></i> 
                 Tự động đăng ký IP: ${allowAutoRegister ? 'Bật' : 'Tắt'}
               </div>
-              <div class="small">
-                <i class="fas fa-laptop me-1"></i> 
-                Giới hạn máy: ${key.maxMachineCount || 1}
+              <div class="small ${multipleDevicesPerIp ? 'text-success' : 'text-danger'}">
+                <i class="fas fa-${multipleDevicesPerIp ? 'users' : 'user'} me-1"></i> 
+                Nhiều thiết bị/IP: ${multipleDevicesPerIp ? 'Bật' : 'Tắt'}
               </div>
               <div class="small">
-                <i class="fas fa-network-wired me-1"></i> 
-                Giới hạn IP/máy: ${key.maxIpCount || 5}
-              </div>
-              <div class="small">
-                <i class="fas fa-exchange-alt me-1"></i> 
-                Chiến lược: ${key.ipRegistrationStrategy || 'strict'}
+                <i class="fas fa-shield-alt me-1"></i> 
+                IP tối đa: ${key.maxIpCount}
               </div>
             </div>
             
@@ -562,23 +551,14 @@
             </div>
             
             <div>
-              <div class="mb-1">
-                <i class="fas fa-network-wired me-1"></i> Truy cập được phép:
-              </div>
+              <div class="mb-1"><i class="fas fa-network-wired me-1"></i> Danh sách IP được phép:</div>
               <div class="ip-tag-container">
-                ${key.allowedIPs && key.allowedIPs.length > 0 ?
-                        key.allowedIPs.map(access => `
-                    <div class="tag d-flex justify-content-between align-items-center">
-                      <span>
-                        IP: ${access.ip} 
-                        <span class="badge bg-secondary ms-1 machine-tag">
-                          ${access.machineIdentifier || 'Không xác định'}
-                        </span>
-                      </span>
-                      <i class="fas fa-times-circle ms-2 remove-ip-btn" 
-                         data-key-id="${key.id}" 
-                         data-ip="${access.ip}"
-                         data-machine-id="${access.machineIdentifier}"></i>
+                ${key.ipDetails && key.ipDetails.length > 0 ?
+                        key.ipDetails.map(ip => `
+                    <div class="tag">
+                      ${ip.ip} 
+                      ${ip.deviceIdentifier ? `<span class="small text-muted">(${ip.deviceIdentifier})</span>` : ''}
+                      <i class="fas fa-times-circle ms-1 remove-ip-btn" data-key-id="${key.id}" data-ip="${ip.ip}" data-device="${ip.deviceIdentifier || ''}"></i>
                     </div>
                   `).join('') :
                         '<span class="text-muted small">Không có IP nào được chỉ định</span>'
@@ -613,7 +593,7 @@
                     e.preventDefault();
                     const keyId = btn.getAttribute('data-id');
                     addIpKeyId.value = keyId;
-                    machineIdentifier.value = ''; // Reset machine identifier
+                    deviceIdentifier.value = '';
                     addIpModal.show();
                 });
             });
@@ -623,21 +603,24 @@
                 btn.addEventListener('click', async () => {
                     const keyId = btn.getAttribute('data-key-id');
                     const ip = btn.getAttribute('data-ip');
-                    const machineId = btn.getAttribute('data-machine-id') || '';
+                    const device = btn.getAttribute('data-device');
 
-                    if (confirm(`Bạn có chắc chắn muốn xóa IP "${ip}" khỏi danh sách?`)) {
+                    if (confirm(`Bạn có chắc chắn muốn xóa IP "${ip}"${device ? ` (thiết bị: ${device})` : ''} khỏi danh sách?`)) {
                         try {
-                            const response = await fetch(`${API_URL}/${keyId}/ip/${encodeURIComponent(ip)}`, {
+                            let url = `${API_URL}/${keyId}/ip/${encodeURIComponent(ip)}`;
+                            if (device) {
+                                url += `?deviceIdentifier=${encodeURIComponent(device)}`;
+                            }
+
+                            const response = await fetch(url, {
                                 method: 'DELETE',
                                 headers: {
-                                    'Content-Type': 'application/json',
                                     'x-admin-token': adminToken
-                                },
-                                body: JSON.stringify({ machine_identifier: machineId })
+                                }
                             });
 
                             if (!response.ok) {
-                                throw new Error('Không thể xóa IP');
+                                throw new Error('Failed to remove IP');
                             }
 
                             showToast('Đã xóa IP thành công!', 'success');
@@ -670,10 +653,42 @@
                         });
 
                         if (!response.ok) {
-                            throw new Error('Không thể cập nhật cài đặt tự động đăng ký');
+                            throw new Error('Failed to update auto-register setting');
                         }
 
                         showToast(`Tự động đăng ký IP đã được ${newAutoRegister ? 'bật' : 'tắt'}!`, 'success');
+                        fetchApiKeys();
+                    } catch (error) {
+                        showToast('Lỗi: ' + error.message, 'danger');
+                    }
+                });
+            });
+
+            // Toggle multiple devices per IP button
+            document.querySelectorAll('.toggle-multiple-devices-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    const keyId = btn.getAttribute('data-id');
+                    const currentMultipleDevices = btn.getAttribute('data-multiple-devices') === 'true';
+                    const newMultipleDevices = !currentMultipleDevices;
+
+                    try {
+                        const response = await fetch(`${API_URL}/${keyId}`, {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'x-admin-token': adminToken
+                            },
+                            body: JSON.stringify({
+                                multipleDevicesPerIp: newMultipleDevices
+                            })
+                        });
+
+                        if (!response.ok) {
+                            throw new Error('Failed to update multiple devices setting');
+                        }
+
+                        showToast(`Nhiều thiết bị/IP đã được ${newMultipleDevices ? 'bật' : 'tắt'}!`, 'success');
                         fetchApiKeys();
                     } catch (error) {
                         showToast('Lỗi: ' + error.message, 'danger');
@@ -702,7 +717,7 @@
                         });
 
                         if (!response.ok) {
-                            throw new Error('Không thể cập nhật trạng thái');
+                            throw new Error('Failed to update status');
                         }
 
                         showToast(`API key đã được ${newStatus ? 'kích hoạt' : 'vô hiệu hóa'}!`, 'success');
@@ -729,7 +744,7 @@
                             });
 
                             if (!response.ok) {
-                                throw new Error('Không thể xóa API key');
+                                throw new Error('Failed to delete API key');
                             }
 
                             showToast('API key đã được xóa thành công!', 'success');
@@ -746,7 +761,7 @@
         saveNewIpBtn.addEventListener('click', async () => {
             const keyId = addIpKeyId.value;
             const ip = newIpAddress.value.trim();
-            const machineId = machineIdentifier.value.trim() || undefined;
+            const device = deviceIdentifier.value.trim();
 
             if (!ip) {
                 showToast('Vui lòng nhập địa chỉ IP!', 'warning');
@@ -762,18 +777,17 @@
                     },
                     body: JSON.stringify({
                         ip,
-                        machine_identifier: machineId
+                        deviceIdentifier: device || null
                     })
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Không thể thêm IP');
+                    throw new Error('Failed to add IP');
                 }
 
                 addIpModal.hide();
                 newIpAddress.value = '';
-                machineIdentifier.value = '';
+                deviceIdentifier.value = '';
                 showToast('Đã thêm IP thành công!', 'success');
                 fetchApiKeys();
             } catch (error) {

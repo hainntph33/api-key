@@ -1,3 +1,4 @@
+// server.js - API Key Management Server with SQLite and IP limits
 const express = require('express');
 const morgan = require('morgan');
 const crypto = require('crypto');
@@ -53,29 +54,44 @@ async function initializeDatabase() {
       lastUsed TEXT,
       allowAutoRegister INTEGER DEFAULT 1,
       maxIpCount INTEGER DEFAULT 5,
-      maxMachineCount INTEGER DEFAULT 1,
-      ipRegistrationStrategy TEXT DEFAULT 'strict'
+      multipleDevicesPerIp INTEGER DEFAULT 0
     );
     
     CREATE TABLE IF NOT EXISTS allowed_ips (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       apikey_id INTEGER NOT NULL,
       ip TEXT NOT NULL,
-      machine_identifier TEXT NOT NULL,
       createdAt TEXT DEFAULT (datetime('now')),
       lastUsed TEXT,
-      UNIQUE(apikey_id, ip, machine_identifier),
+      deviceIdentifier TEXT,
+      UNIQUE(apikey_id, ip, deviceIdentifier),
       FOREIGN KEY (apikey_id) REFERENCES apikeys(id) ON DELETE CASCADE
     );
   `);
   
+  // Cập nhật schema nếu cần (thêm cột cho các bảng cũ)
+  try {
+    await db.exec(`
+      ALTER TABLE apikeys ADD COLUMN allowAutoRegister INTEGER DEFAULT 1;
+      ALTER TABLE apikeys ADD COLUMN maxIpCount INTEGER DEFAULT 5;
+      ALTER TABLE apikeys ADD COLUMN multipleDevicesPerIp INTEGER DEFAULT 0;
+      ALTER TABLE allowed_ips ADD COLUMN createdAt TEXT DEFAULT (datetime('now'));
+      ALTER TABLE allowed_ips ADD COLUMN lastUsed TEXT;
+      ALTER TABLE allowed_ips ADD COLUMN deviceIdentifier TEXT;
+    `);
+  } catch (error) {
+    // Bỏ qua lỗi nếu cột đã tồn tại
+    console.log('Some columns may already exist, continuing...');
+  }
+  
   console.log('Database initialized');
 }
 
-// Function to generate API key
-function generateApiKey() {
-  return crypto.randomBytes(24).toString('hex');
-}
+// Initialize database on startup
+initializeDatabase().catch(err => {
+  console.error('Database initialization error:', err);
+  process.exit(1);
+});
 
 // Function to get real client IP
 function getClientIp(req) {
@@ -101,13 +117,35 @@ function getClientIp(req) {
   return req.ip || req.connection.remoteAddress;
 }
 
-// Middleware for API key verification from URL
-const verifyApiKeyFromURL = async (req, res, next) => {
-  const apiKey = req.query.key;
-  const clientIP = getClientIp(req);
+// Function to get device identifier
+function getDeviceIdentifier(req) {
+  // Ưu tiên sử dụng device-id từ header nếu có
+  const deviceId = req.headers['device-id'] || req.query.deviceId;
+  if (deviceId) {
+    return deviceId;
+  }
   
-  console.log('API Key from URL:', apiKey);
-  console.log('Client IP:', clientIP);
+  // Tạo một định danh dựa trên user-agent và thông tin khác
+  const userAgent = req.headers['user-agent'] || 'unknown';
+  const acceptLanguage = req.headers['accept-language'] || 'unknown';
+  
+  // Tạo hash từ các thông tin trên để tạo device identifier
+  return crypto
+    .createHash('md5')
+    .update(`${userAgent}|${acceptLanguage}`)
+    .digest('hex');
+}
+
+// Generate a new API key
+function generateApiKey() {
+  return crypto.randomBytes(24).toString('hex');
+}
+
+// Middleware to verify API key and IP from header
+const verifyApiKey = async (req, res, next) => {
+  const apiKey = req.headers['x-api-key'];
+  const clientIP = getClientIp(req);
+  const deviceIdentifier = getDeviceIdentifier(req);
   
   if (!apiKey) {
     return res.status(401).json({ error: 'API key is required' });
@@ -129,92 +167,77 @@ const verifyApiKeyFromURL = async (req, res, next) => {
       return res.status(403).json({ error: 'API key has expired' });
     }
     
-    // Create unique machine identifier
-    const machineIdentifier = crypto.createHash('sha256')
-      .update(`${req.headers['user-agent']}:${clientIP}`)
-      .digest('hex');
-    
-    // Check if IP and machine are already registered
-    const existingAccess = await db.get(
-      'SELECT * FROM allowed_ips WHERE apikey_id = ? AND ip = ?', 
-      [keyData.id, clientIP]
+    // Check if the client IP is in the allowed IPs list for this device
+    const allowedIP = await db.get(
+      'SELECT * FROM allowed_ips WHERE apikey_id = ? AND ip = ? AND (deviceIdentifier IS NULL OR deviceIdentifier = ? OR ? = "")', 
+      [keyData.id, clientIP, deviceIdentifier, deviceIdentifier]
     );
     
-    // If not registered
-    if (!existingAccess) {
-      // Check machine count
-      const machineCount = await db.get(
-        'SELECT COUNT(DISTINCT machine_identifier) as count FROM allowed_ips WHERE apikey_id = ?', 
-        [keyData.id]
-      );
-      
-      // Check IP count
-      const ipCount = await db.get(
-        'SELECT COUNT(*) as count FROM allowed_ips WHERE apikey_id = ?', 
-        [keyData.id]
-      );
-      
-      // Check machine limit
-      if (machineCount.count >= keyData.maxMachineCount) {
+    if (!allowedIP) {
+      // Check if API key allows auto-register and if we're under the max IP limit
+      if (keyData.allowAutoRegister === 1) {
+        // Count existing IPs for this key
+        const ipCount = await db.get('SELECT COUNT(*) as count FROM allowed_ips WHERE apikey_id = ?', [keyData.id]);
+        
+        if (ipCount.count >= keyData.maxIpCount) {
+          return res.status(403).json({ 
+            error: 'Maximum IP limit reached for this API key',
+            maxIps: keyData.maxIpCount,
+            currentIpCount: ipCount.count 
+          });
+        }
+        
+        // Kiểm tra xem IP đã được sử dụng trước đó chưa
+        const existingIPCount = await db.get(
+          'SELECT COUNT(*) as count FROM allowed_ips WHERE apikey_id = ? AND ip = ?', 
+          [keyData.id, clientIP]
+        );
+        
+        // Nếu IP đã tồn tại và không cho phép nhiều thiết bị/IP
+        if (existingIPCount.count > 0 && keyData.multipleDevicesPerIp !== 1) {
+          return res.status(403).json({ 
+            error: 'This IP is already registered with another device and multiple devices per IP is not allowed',
+            clientIP: clientIP
+          });
+        }
+        
+        // Add the new IP with device identifier
+        await db.run(
+          'INSERT INTO allowed_ips (apikey_id, ip, deviceIdentifier, lastUsed) VALUES (?, ?, ?, datetime("now"))',
+          [keyData.id, clientIP, deviceIdentifier]
+        );
+        console.log(`Auto-added IP ${clientIP} with device ${deviceIdentifier} for key ${apiKey}`);
+      } else {
         return res.status(403).json({ 
-          error: 'Maximum machine limit reached for this API key',
-          maxMachines: keyData.maxMachineCount
+          error: 'IP not authorized for this API key and auto-registration is disabled',
+          clientIP: clientIP,
+          deviceIdentifier: deviceIdentifier
         });
       }
-      
-      // Check IP limit
-      if (ipCount.count >= (keyData.maxMachineCount * keyData.maxIpCount)) {
-        return res.status(403).json({ 
-          error: 'Maximum IP limit reached for this API key',
-          maxIPs: keyData.maxMachineCount * keyData.maxIpCount
-        });
-      }
-      
-      // Add new IP and machine
-      await db.run(
-        'INSERT INTO allowed_ips (apikey_id, ip, machine_identifier, lastUsed) VALUES (?, ?, ?, datetime("now"))',
-        [keyData.id, clientIP, machineIdentifier]
-      );
-      
-      console.log(`Registered IP ${clientIP} for machine ${machineIdentifier}`);
     } else {
-      // If IP exists, check machine
-      const machineAccess = await db.get(
-        'SELECT * FROM allowed_ips WHERE apikey_id = ? AND ip = ? AND machine_identifier = ?', 
-        [keyData.id, clientIP, machineIdentifier]
-      );
-      
-      // If machine doesn't match
-      if (!machineAccess) {
-        return res.status(403).json({ 
-          error: 'IP already registered for a different machine',
-          clientIP: clientIP
-        });
-      }
-      
-      // Update last used timestamp
+      // Update last used timestamp for this IP
       await db.run(
-        'UPDATE allowed_ips SET lastUsed = datetime("now") WHERE apikey_id = ? AND ip = ? AND machine_identifier = ?',
-        [keyData.id, clientIP, machineIdentifier]
+        'UPDATE allowed_ips SET lastUsed = datetime("now") WHERE apikey_id = ? AND ip = ? AND (deviceIdentifier IS NULL OR deviceIdentifier = ? OR ? = "")',
+        [keyData.id, clientIP, deviceIdentifier, deviceIdentifier]
       );
     }
     
-    // Update API key usage count
+    // Update usage statistics for the API key
     await db.run(
       'UPDATE apikeys SET usageCount = usageCount + 1, lastUsed = datetime("now") WHERE id = ?',
       [keyData.id]
     );
     
-    // Get allowed access list
-    const allowedAccess = await db.all(
-      'SELECT ip, machine_identifier FROM allowed_ips WHERE apikey_id = ?', 
-      [keyData.id]
-    );
+    // Get the updated allowed IPs
+    const allowedIPs = await db.all('SELECT ip, deviceIdentifier FROM allowed_ips WHERE apikey_id = ?', [keyData.id]);
     
-    // Attach key data to request
+    // Attach the key data to the request object
     req.apiKeyData = {
       ...keyData,
-      allowedAccess: allowedAccess
+      allowedIPs: allowedIPs.map(item => ({
+        ip: item.ip,
+        deviceIdentifier: item.deviceIdentifier
+      }))
     };
     
     next();
@@ -224,7 +247,144 @@ const verifyApiKeyFromURL = async (req, res, next) => {
   }
 };
 
-// Create Express Router for admin routes
+// Middleware để xác thực API key từ URL query parameter với kiểm soát giới hạn IP
+const verifyApiKeyFromURL = async (req, res, next) => {
+  const apiKey = req.query.key;
+  const clientIP = getClientIp(req);
+  const deviceIdentifier = getDeviceIdentifier(req);
+  
+  console.log('API Key from URL:', apiKey);
+  console.log('Client IP:', clientIP);
+  console.log('Device Identifier:', deviceIdentifier);
+  
+  if (!apiKey) {
+    return res.status(401).json({ error: 'API key is required' });
+  }
+
+  try {
+    // Get API key data
+    const keyData = await db.get('SELECT * FROM apikeys WHERE key = ?', [apiKey]);
+    
+    if (!keyData) {
+      return res.status(401).json({ error: 'Invalid API key' });
+    }
+    
+    if (!keyData.isActive) {
+      return res.status(403).json({ error: 'API key is inactive' });
+    }
+    
+    if (keyData.expiresAt && new Date(keyData.expiresAt) < new Date()) {
+      return res.status(403).json({ error: 'API key has expired' });
+    }
+    
+    // Check if the client IP is already in the allowed IPs list for this device
+    const allowedIP = await db.get(
+      'SELECT * FROM allowed_ips WHERE apikey_id = ? AND ip = ? AND (deviceIdentifier IS NULL OR deviceIdentifier = ? OR ? = "")', 
+      [keyData.id, clientIP, deviceIdentifier, deviceIdentifier]
+    );
+    
+    if (!allowedIP) {
+      // IP not registered yet - auto đăng ký IP cho URL API endpoint
+      // Count existing IPs for this key
+      const ipCount = await db.get('SELECT COUNT(*) as count FROM allowed_ips WHERE apikey_id = ?', [keyData.id]);
+      
+      if (ipCount.count >= keyData.maxIpCount) {
+        return res.status(403).json({ 
+          error: 'Maximum IP limit reached for this API key',
+          maxIps: keyData.maxIpCount,
+          currentIpCount: ipCount.count,
+          message: 'Please contact the administrator to remove unused IPs'
+        });
+      }
+      
+      // Kiểm tra xem IP đã tồn tại trước đó chưa
+      const existingIPCount = await db.get(
+        'SELECT COUNT(*) as count FROM allowed_ips WHERE apikey_id = ? AND ip = ?', 
+        [keyData.id, clientIP]
+      );
+      
+      // Nếu IP đã tồn tại và không cho phép nhiều thiết bị/IP
+      if (existingIPCount.count > 0 && keyData.multipleDevicesPerIp !== 1) {
+        return res.status(403).json({ 
+          error: 'This IP is already registered with another device and multiple devices per IP is not allowed',
+          clientIP: clientIP
+        });
+      }
+      
+      // Add the new IP with device identifier - luôn đăng ký khi gọi qua URL
+      await db.run(
+        'INSERT INTO allowed_ips (apikey_id, ip, deviceIdentifier, lastUsed) VALUES (?, ?, ?, datetime("now"))',
+        [keyData.id, clientIP, deviceIdentifier]
+      );
+      console.log(`Auto-registered IP ${clientIP} with device ${deviceIdentifier} for key ${apiKey} via URL endpoint`);
+    } else {
+      // Update last used timestamp for this IP
+      await db.run(
+        'UPDATE allowed_ips SET lastUsed = datetime("now") WHERE apikey_id = ? AND ip = ? AND (deviceIdentifier IS NULL OR deviceIdentifier = ? OR ? = "")',
+        [keyData.id, clientIP, deviceIdentifier, deviceIdentifier]
+      );
+    }
+    
+    // Update usage statistics for the API key
+    await db.run(
+      'UPDATE apikeys SET usageCount = usageCount + 1, lastUsed = datetime("now") WHERE id = ?',
+      [keyData.id]
+    );
+    
+    // Get the updated allowed IPs
+    const allowedIPs = await db.all('SELECT ip, deviceIdentifier FROM allowed_ips WHERE apikey_id = ?', [keyData.id]);
+    
+    // Attach the key data to the request object
+    req.apiKeyData = {
+      ...keyData,
+      allowedIPs: allowedIPs.map(item => ({
+        ip: item.ip,
+        deviceIdentifier: item.deviceIdentifier
+      }))
+    };
+    
+    next();
+  } catch (error) {
+    console.error('API key verification error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Route để xác thực API key thông qua URL
+app.get('/verify', verifyApiKeyFromURL, (req, res) => {
+  res.json({ 
+    valid: true,
+    message: 'API key is valid',
+    key: {
+      name: req.apiKeyData.name,
+      expiresAt: req.apiKeyData.expiresAt,
+      usageCount: req.apiKeyData.usageCount,
+      allowAutoRegister: req.apiKeyData.allowAutoRegister === 1,
+      multipleDevicesPerIp: req.apiKeyData.multipleDevicesPerIp === 1,
+      maxIpCount: req.apiKeyData.maxIpCount
+    },
+    clientIP: getClientIp(req),
+    deviceIdentifier: getDeviceIdentifier(req),
+    allowedIPs: req.apiKeyData.allowedIPs,
+    ipRegistrationUrl: `${req.protocol}://${req.get('host')}/api/data-url?key=${req.query.key}`
+  });
+});
+
+// API routes với xác thực qua URL parameter - luôn đăng ký IP tự động
+app.get('/api/data-url', verifyApiKeyFromURL, (req, res) => {
+  res.json({ 
+    message: 'You have access to protected data via URL',
+    keyName: req.apiKeyData.name,
+    clientIP: getClientIp(req),
+    deviceIdentifier: getDeviceIdentifier(req),
+    registeredIPs: req.apiKeyData.allowedIPs,
+    ipLimit: req.apiKeyData.maxIpCount,
+    currentIpCount: req.apiKeyData.allowedIPs.length,
+    multipleDevicesPerIp: req.apiKeyData.multipleDevicesPerIp === 1
+  });
+});
+
+// Admin routes for managing API keys
 const adminRouter = express.Router();
 
 // Admin authentication middleware
@@ -241,15 +401,7 @@ adminRouter.use((req, res, next) => {
 // Create a new API key
 adminRouter.post('/keys', async (req, res) => {
   try {
-    const { 
-      name, 
-      allowedIPs, 
-      expiresAt, 
-      allowAutoRegister, 
-      maxIpCount, 
-      maxMachineCount,
-      ipRegistrationStrategy 
-    } = req.body;
+    const { name, allowedIPs, expiresAt, allowAutoRegister, maxIpCount, multipleDevicesPerIp } = req.body;
     
     if (!name) {
       return res.status(400).json({ error: 'Name is required' });
@@ -260,17 +412,16 @@ adminRouter.post('/keys', async (req, res) => {
     // Start a transaction
     await db.run('BEGIN TRANSACTION');
     
-    // Insert the new API key with machine count and IP strategy
+    // Insert the new API key
     const result = await db.run(
-      'INSERT INTO apikeys (key, name, expiresAt, allowAutoRegister, maxIpCount, maxMachineCount, ipRegistrationStrategy) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO apikeys (key, name, expiresAt, allowAutoRegister, maxIpCount, multipleDevicesPerIp) VALUES (?, ?, ?, ?, ?, ?)',
       [
         key, 
         name, 
         expiresAt, 
         allowAutoRegister === false ? 0 : 1,
         maxIpCount || 5,
-        maxMachineCount || 1,
-        ipRegistrationStrategy || 'strict'
+        multipleDevicesPerIp === true ? 1 : 0
       ]
     );
     
@@ -279,12 +430,11 @@ adminRouter.post('/keys', async (req, res) => {
     // Insert allowed IPs
     if (allowedIPs && allowedIPs.length > 0) {
       const insertIpStatement = await db.prepare(
-        'INSERT INTO allowed_ips (apikey_id, ip, machine_identifier) VALUES (?, ?, ?)'
+        'INSERT INTO allowed_ips (apikey_id, ip) VALUES (?, ?)'
       );
       
       for (const ip of allowedIPs) {
-        // Use a default machine identifier for pre-registered IPs
-        await insertIpStatement.run(keyId, ip, 'default-machine');
+        await insertIpStatement.run(keyId, ip);
       }
       
       await insertIpStatement.finalize();
@@ -295,14 +445,12 @@ adminRouter.post('/keys', async (req, res) => {
     
     // Get the created API key with IPs
     const newKey = await db.get('SELECT * FROM apikeys WHERE id = ?', [keyId]);
-    const ips = await db.all('SELECT ip, machine_identifier FROM allowed_ips WHERE apikey_id = ?', [keyId]);
+    const ips = await db.all('SELECT ip, deviceIdentifier FROM allowed_ips WHERE apikey_id = ?', [keyId]);
     
     res.status(201).json({
       ...newKey,
-      allowedIPs: ips.map(item => ({
-        ip: item.ip,
-        machineIdentifier: item.machine_identifier
-      }))
+      allowedIPs: ips.map(item => item.ip),
+      ipDetails: ips
     });
   } catch (error) {
     await db.run('ROLLBACK');
@@ -311,32 +459,276 @@ adminRouter.post('/keys', async (req, res) => {
   }
 });
 
-// Register admin routes with the main app
+// Get all API keys
+adminRouter.get('/keys', async (req, res) => {
+  try {
+    const keys = await db.all('SELECT * FROM apikeys ORDER BY createdAt DESC');
+    
+    // Get allowed IPs for each key
+    for (const key of keys) {
+      const ips = await db.all('SELECT ip, deviceIdentifier, createdAt, lastUsed FROM allowed_ips WHERE apikey_id = ?', [key.id]);
+      key.allowedIPs = ips.map(item => item.ip);
+      key.ipDetails = ips;
+    }
+    
+    res.json(keys);
+  } catch (error) {
+    console.error('Error fetching API keys:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get a single API key
+adminRouter.get('/keys/:id', async (req, res) => {
+  try {
+    const key = await db.get('SELECT * FROM apikeys WHERE id = ?', [req.params.id]);
+    
+    if (!key) {
+      return res.status(404).json({ error: 'API key not found' });
+    }
+    
+    const ips = await db.all('SELECT ip, deviceIdentifier, createdAt, lastUsed FROM allowed_ips WHERE apikey_id = ?', [key.id]);
+    key.allowedIPs = ips.map(item => item.ip);
+    key.ipDetails = ips;
+    
+    res.json(key);
+  } catch (error) {
+    console.error('Error fetching API key:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update an API key
+adminRouter.put('/keys/:id', async (req, res) => {
+  try {
+    const { name, allowedIPs, isActive, expiresAt, allowAutoRegister, maxIpCount, multipleDevicesPerIp } = req.body;
+    const keyId = req.params.id;
+    
+    // Check if key exists
+    const existingKey = await db.get('SELECT * FROM apikeys WHERE id = ?', [keyId]);
+    
+    if (!existingKey) {
+      return res.status(404).json({ error: 'API key not found' });
+    }
+    
+    // Start a transaction
+    await db.run('BEGIN TRANSACTION');
+    
+    // Update the API key
+    await db.run(
+      'UPDATE apikeys SET name = ?, isActive = ?, expiresAt = ?, allowAutoRegister = ?, maxIpCount = ?, multipleDevicesPerIp = ? WHERE id = ?',
+      [
+        name || existingKey.name,
+        isActive !== undefined ? isActive : existingKey.isActive,
+        expiresAt || existingKey.expiresAt,
+        allowAutoRegister !== undefined ? (allowAutoRegister ? 1 : 0) : existingKey.allowAutoRegister,
+        maxIpCount || existingKey.maxIpCount,
+        multipleDevicesPerIp !== undefined ? (multipleDevicesPerIp ? 1 : 0) : existingKey.multipleDevicesPerIp,
+        keyId
+      ]
+    );
+    
+    // Update allowed IPs if provided
+    if (allowedIPs) {
+      // Delete existing IPs
+      await db.run('DELETE FROM allowed_ips WHERE apikey_id = ?', [keyId]);
+      
+      // Insert new IPs
+      if (allowedIPs.length > 0) {
+        const insertIpStatement = await db.prepare(
+          'INSERT INTO allowed_ips (apikey_id, ip) VALUES (?, ?)'
+        );
+        
+        for (const ip of allowedIPs) {
+          await insertIpStatement.run(keyId, ip);
+        }
+        
+        await insertIpStatement.finalize();
+      }
+    }
+    
+    // Commit the transaction
+    await db.run('COMMIT');
+    
+    // Get the updated API key
+    const updatedKey = await db.get('SELECT * FROM apikeys WHERE id = ?', [keyId]);
+    const ips = await db.all('SELECT ip, deviceIdentifier, createdAt, lastUsed FROM allowed_ips WHERE apikey_id = ?', [keyId]);
+    updatedKey.allowedIPs = ips.map(item => item.ip);
+    updatedKey.ipDetails = ips;
+    
+    res.json(updatedKey);
+  } catch (error) {
+    await db.run('ROLLBACK');
+    console.error('Error updating API key:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete an API key
+adminRouter.delete('/keys/:id', async (req, res) => {
+  try {
+    const keyId = req.params.id;
+    
+    // Check if key exists
+    const existingKey = await db.get('SELECT * FROM apikeys WHERE id = ?', [keyId]);
+    
+    if (!existingKey) {
+      return res.status(404).json({ error: 'API key not found' });
+    }
+    
+    // Delete the key (cascades to allowed_ips due to foreign key constraint)
+    await db.run('DELETE FROM apikeys WHERE id = ?', [keyId]);
+    
+    res.status(204).end();
+  } catch (error) {
+    console.error('Error deleting API key:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Register IP for an existing API key
+adminRouter.post('/keys/:id/ip', async (req, res) => {
+  try {
+    const { ip, deviceIdentifier } = req.body;
+    const keyId = req.params.id;
+    
+    if (!ip) {
+      return res.status(400).json({ error: 'IP address is required' });
+    }
+    
+    // Check if key exists
+    const existingKey = await db.get('SELECT * FROM apikeys WHERE id = ?', [keyId]);
+    
+    if (!existingKey) {
+      return res.status(404).json({ error: 'API key not found' });
+    }
+    
+    // Check if we're under the IP limit
+    const ipCount = await db.get('SELECT COUNT(*) as count FROM allowed_ips WHERE apikey_id = ?', [keyId]);
+    
+    if (ipCount.count >= existingKey.maxIpCount) {
+      return res.status(403).json({ 
+        error: 'Maximum IP limit reached for this API key',
+        maxIps: existingKey.maxIpCount,
+        currentIpCount: ipCount.count
+      });
+    }
+    
+    // Kiểm tra nếu IP đã tồn tại cho thiết bị này
+    const existingIp = await db.get(
+      'SELECT * FROM allowed_ips WHERE apikey_id = ? AND ip = ? AND (deviceIdentifier = ? OR ? IS NULL)', 
+      [keyId, ip, deviceIdentifier, deviceIdentifier]
+    );
+    
+    // Kiểm tra nếu IP đã tồn tại nhưng cho thiết bị khác và không cho phép nhiều thiết bị/IP
+    const existingIPForOtherDevice = await db.get(
+      'SELECT COUNT(*) as count FROM allowed_ips WHERE apikey_id = ? AND ip = ? AND (deviceIdentifier != ? OR ? IS NULL)', 
+      [keyId, ip, deviceIdentifier, deviceIdentifier]
+    );
+    
+    if (!existingIp) {
+      if (existingIPForOtherDevice && existingIPForOtherDevice.count > 0 && existingKey.multipleDevicesPerIp !== 1) {
+        return res.status(403).json({ 
+          error: 'This IP is already registered with another device and multiple devices per IP is not allowed',
+          ip: ip
+        });
+      }
+      
+      // Add new IP with device identifier
+      await db.run(
+        'INSERT INTO allowed_ips (apikey_id, ip, deviceIdentifier) VALUES (?, ?, ?)',
+        [keyId, ip, deviceIdentifier || null]
+      );
+    }
+    
+    // Get updated key with IPs
+    const updatedKey = await db.get('SELECT * FROM apikeys WHERE id = ?', [keyId]);
+    const ips = await db.all('SELECT ip, deviceIdentifier, createdAt, lastUsed FROM allowed_ips WHERE apikey_id = ?', [keyId]);
+    updatedKey.allowedIPs = ips.map(item => item.ip);
+    updatedKey.ipDetails = ips;
+    
+    res.json(updatedKey);
+  } catch (error) {
+    console.error('Error registering IP:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Remove IP from an API key
+adminRouter.delete('/keys/:id/ip/:ip', async (req, res) => {
+  try {
+    const keyId = req.params.id;
+    const ip = req.params.ip;
+    const deviceIdentifier = req.query.deviceIdentifier;
+    
+    // Check if key exists
+    const existingKey = await db.get('SELECT * FROM apikeys WHERE id = ?', [keyId]);
+    
+    if (!existingKey) {
+      return res.status(404).json({ error: 'API key not found' });
+    }
+    
+    // Delete the IP - if deviceIdentifier is provided, only delete for that device
+    let result;
+    if (deviceIdentifier) {
+      result = await db.run(
+        'DELETE FROM allowed_ips WHERE apikey_id = ? AND ip = ? AND deviceIdentifier = ?',
+        [keyId, ip, deviceIdentifier]
+      );
+    } else {
+      result = await db.run(
+        'DELETE FROM allowed_ips WHERE apikey_id = ? AND ip = ?',
+        [keyId, ip]
+      );
+    }
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'IP not found for this API key' });
+    }
+    
+    // Get updated key with IPs
+    const updatedKey = await db.get('SELECT * FROM apikeys WHERE id = ?', [keyId]);
+    const ips = await db.all('SELECT ip, deviceIdentifier, createdAt, lastUsed FROM allowed_ips WHERE apikey_id = ?', [keyId]);
+    updatedKey.allowedIPs = ips.map(item => item.ip);
+    updatedKey.ipDetails = ips;
+    
+    res.json(updatedKey);
+  } catch (error) {
+    console.error('Error removing IP:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Register admin routes
 app.use('/admin', adminRouter);
 
-// API routes with URL parameter verification
-app.get('/api/data-url', verifyApiKeyFromURL, (req, res) => {
+// API routes that require API key authentication
+const apiRouter = express.Router();
+apiRouter.use(verifyApiKey);
+
+// Sample protected API endpoint
+apiRouter.get('/data', (req, res) => {
   res.json({ 
-    message: 'You have access to protected data via URL',
+    message: 'You have access to protected data',
     keyName: req.apiKeyData.name,
     clientIP: getClientIp(req),
-    registeredIPs: req.apiKeyData.allowedAccess,
+    deviceIdentifier: getDeviceIdentifier(req),
     ipLimit: req.apiKeyData.maxIpCount,
-    currentIpCount: req.apiKeyData.allowedAccess.length
+    multipleDevicesPerIp: req.apiKeyData.multipleDevicesPerIp === 1,
+    registeredIPs: req.apiKeyData.allowedIPs
   });
 });
 
-// Initialize database and start server
-initializeDatabase()
-  .then(() => {
-    const PORT = process.env.PORT || 3000;
-    app.listen(PORT, () => {
-      console.log(`Server is running on port ${PORT}`);
-    });
-  })
-  .catch(err => {
-    console.error('Failed to initialize database:', err);
-    process.exit(1);
-  });
+// Register API routes
+app.use('/api', apiRouter);
 
-module.exports = app;
+// Serve the main HTML file for any route not handled by API
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Start the server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
