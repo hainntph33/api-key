@@ -1,4 +1,3 @@
-// server.js - API Key Management Server with Enhanced IP and Machine Restrictions
 const express = require('express');
 const morgan = require('morgan');
 const crypto = require('crypto');
@@ -17,6 +16,9 @@ const app = express();
 app.use(express.json());
 app.use(morgan('dev'));
 app.use(cors());
+
+// Serve static files from the public directory
+app.use(express.static('public'));
 
 // Create database directory if it doesn't exist
 const dbDir = path.join(__dirname, 'database');
@@ -38,7 +40,7 @@ async function initializeDatabase() {
   // Enable foreign keys
   await db.run('PRAGMA foreign_keys = ON');
 
-  // Create tables with additional columns for machine restrictions
+  // Create tables
   await db.exec(`
     CREATE TABLE IF NOT EXISTS apikeys (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,14 +54,14 @@ async function initializeDatabase() {
       allowAutoRegister INTEGER DEFAULT 1,
       maxIpCount INTEGER DEFAULT 5,
       maxMachineCount INTEGER DEFAULT 1,
-      ipRegistrationStrategy TEXT DEFAULT 'strict' -- 'strict' or 'flexible'
+      ipRegistrationStrategy TEXT DEFAULT 'strict'
     );
     
     CREATE TABLE IF NOT EXISTS allowed_ips (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       apikey_id INTEGER NOT NULL,
       ip TEXT NOT NULL,
-      machine_identifier TEXT NOT NULL, -- Unique machine identifier
+      machine_identifier TEXT NOT NULL,
       createdAt TEXT DEFAULT (datetime('now')),
       lastUsed TEXT,
       UNIQUE(apikey_id, ip, machine_identifier),
@@ -70,11 +72,10 @@ async function initializeDatabase() {
   console.log('Database initialized');
 }
 
-// Initialize database on startup
-initializeDatabase().catch(err => {
-  console.error('Database initialization error:', err);
-  process.exit(1);
-});
+// Function to generate API key
+function generateApiKey() {
+  return crypto.randomBytes(24).toString('hex');
+}
 
 // Function to get real client IP
 function getClientIp(req) {
@@ -100,166 +101,144 @@ function getClientIp(req) {
   return req.ip || req.connection.remoteAddress;
 }
 
-// Function to generate a unique machine identifier
-function generateMachineIdentifier(req) {
-  // Combine multiple factors to create a unique machine identifier
-  const userAgent = req.headers['user-agent'] || '';
-  const clientIp = getClientIp(req);
-  const acceptLanguage = req.headers['accept-language'] || '';
-  
-  // Hash the combined string to create a unique identifier
-  return crypto.createHash('sha256')
-    .update(`${userAgent}:${clientIp}:${acceptLanguage}`)
-    .digest('hex');
-}
-
-// Middleware to verify API key from URL with enhanced machine and IP restrictions
-// Middleware để xác thực API key từ URL query parameter với kiểm soát giới hạn IP và máy
+// Middleware for API key verification from URL
 const verifyApiKeyFromURL = async (req, res, next) => {
-    const apiKey = req.query.key;
-    const clientIP = getClientIp(req);
-    
-    console.log('API Key from URL:', apiKey);
-    console.log('Client IP:', clientIP);
-    
-    if (!apiKey) {
-      return res.status(401).json({ error: 'API key is required' });
-    }
+  const apiKey = req.query.key;
+  const clientIP = getClientIp(req);
   
-    try {
-      // Lấy thông tin API key
-      const keyData = await db.get('SELECT * FROM apikeys WHERE key = ?', [apiKey]);
-      
-      if (!keyData) {
-        return res.status(401).json({ error: 'Invalid API key' });
-      }
-      
-      if (!keyData.isActive) {
-        return res.status(403).json({ error: 'API key is inactive' });
-      }
-      
-      if (keyData.expiresAt && new Date(keyData.expiresAt) < new Date()) {
-        return res.status(403).json({ error: 'API key has expired' });
-      }
-      
-      // Tạo mã định danh máy duy nhất
-      const machineIdentifier = crypto.createHash('sha256')
-        .update(`${req.headers['user-agent']}:${clientIP}`)
-        .digest('hex');
-      
-      // Kiểm tra xem IP và máy đã được đăng ký chưa
-      const existingAccess = await db.get(
-        'SELECT * FROM allowed_ips WHERE apikey_id = ? AND ip = ?', 
-        [keyData.id, clientIP]
-      );
-      
-      // Nếu chưa đăng ký
-      if (!existingAccess) {
-        // Kiểm tra số lượng máy đã đăng ký
-        const machineCount = await db.get(
-          'SELECT COUNT(DISTINCT machine_identifier) as count FROM allowed_ips WHERE apikey_id = ?', 
-          [keyData.id]
-        );
-        
-        // Kiểm tra số lượng IP đã đăng ký
-        const ipCount = await db.get(
-          'SELECT COUNT(*) as count FROM allowed_ips WHERE apikey_id = ?', 
-          [keyData.id]
-        );
-        
-        // Nếu số lượng máy vượt quá giới hạn
-        if (machineCount.count >= keyData.maxMachineCount) {
-          return res.status(403).json({ 
-            error: 'Đã đạt giới hạn số lượng máy cho API key này',
-            maxMachines: keyData.maxMachineCount
-          });
-        }
-        
-        // Nếu số lượng IP vượt quá giới hạn
-        if (ipCount.count >= (keyData.maxMachineCount * keyData.maxIpCount)) {
-          return res.status(403).json({ 
-            error: 'Đã đạt giới hạn số lượng IP cho API key này',
-            maxIPs: keyData.maxMachineCount * keyData.maxIpCount
-          });
-        }
-        
-        // Thêm IP và máy mới
-        await db.run(
-          'INSERT INTO allowed_ips (apikey_id, ip, machine_identifier, lastUsed) VALUES (?, ?, ?, datetime("now"))',
-          [keyData.id, clientIP, machineIdentifier]
-        );
-        
-        console.log(`Đã đăng ký IP ${clientIP} cho máy ${machineIdentifier}`);
-      } else {
-        // Nếu IP đã tồn tại, kiểm tra máy
-        const machineAccess = await db.get(
-          'SELECT * FROM allowed_ips WHERE apikey_id = ? AND ip = ? AND machine_identifier = ?', 
-          [keyData.id, clientIP, machineIdentifier]
-        );
-        
-        // Nếu máy không khớp
-        if (!machineAccess) {
-          return res.status(403).json({ 
-            error: 'IP này đã được đăng ký cho một máy khác',
-            clientIP: clientIP
-          });
-        }
-        
-        // Cập nhật lần sử dụng cuối
-        await db.run(
-          'UPDATE allowed_ips SET lastUsed = datetime("now") WHERE apikey_id = ? AND ip = ? AND machine_identifier = ?',
-          [keyData.id, clientIP, machineIdentifier]
-        );
-      }
-      
-      // Cập nhật số lần sử dụng của API key
-      await db.run(
-        'UPDATE apikeys SET usageCount = usageCount + 1, lastUsed = datetime("now") WHERE id = ?',
-        [keyData.id]
-      );
-      
-      // Lấy danh sách các IP và máy đã được phép
-      const allowedAccess = await db.all(
-        'SELECT ip, machine_identifier FROM allowed_ips WHERE apikey_id = ?', 
-        [keyData.id]
-      );
-      
-      // Gắn thông tin key vào request
-      req.apiKeyData = {
-        ...keyData,
-        allowedAccess: allowedAccess
-      };
-      
-      next();
-    } catch (error) {
-      console.error('Lỗi xác thực API key:', error);
-      res.status(500).json({ error: 'Lỗi máy chủ nội bộ' });
-    }
-  };
+  console.log('API Key from URL:', apiKey);
+  console.log('Client IP:', clientIP);
+  
+  if (!apiKey) {
+    return res.status(401).json({ error: 'API key is required' });
+  }
 
-// Modify the verification route to show more details
-app.get('/verify', verifyApiKeyFromURL, (req, res) => {
-  res.json({ 
-    valid: true,
-    message: 'API key is valid',
-    key: {
-      name: req.apiKeyData.name,
-      expiresAt: req.apiKeyData.expiresAt,
-      usageCount: req.apiKeyData.usageCount,
-      allowAutoRegister: req.apiKeyData.allowAutoRegister === 1,
-      maxIpCount: req.apiKeyData.maxIpCount,
-      maxMachineCount: req.apiKeyData.maxMachineCount
-    },
-    clientIP: getClientIp(req),
-    machineIdentifier: generateMachineIdentifier(req),
-    allowedAccess: req.apiKeyData.allowedAccess,
-    ipRegistrationStrategy: req.apiKeyData.ipRegistrationStrategy
-  });
+  try {
+    // Get API key data
+    const keyData = await db.get('SELECT * FROM apikeys WHERE key = ?', [apiKey]);
+    
+    if (!keyData) {
+      return res.status(401).json({ error: 'Invalid API key' });
+    }
+    
+    if (!keyData.isActive) {
+      return res.status(403).json({ error: 'API key is inactive' });
+    }
+    
+    if (keyData.expiresAt && new Date(keyData.expiresAt) < new Date()) {
+      return res.status(403).json({ error: 'API key has expired' });
+    }
+    
+    // Create unique machine identifier
+    const machineIdentifier = crypto.createHash('sha256')
+      .update(`${req.headers['user-agent']}:${clientIP}`)
+      .digest('hex');
+    
+    // Check if IP and machine are already registered
+    const existingAccess = await db.get(
+      'SELECT * FROM allowed_ips WHERE apikey_id = ? AND ip = ?', 
+      [keyData.id, clientIP]
+    );
+    
+    // If not registered
+    if (!existingAccess) {
+      // Check machine count
+      const machineCount = await db.get(
+        'SELECT COUNT(DISTINCT machine_identifier) as count FROM allowed_ips WHERE apikey_id = ?', 
+        [keyData.id]
+      );
+      
+      // Check IP count
+      const ipCount = await db.get(
+        'SELECT COUNT(*) as count FROM allowed_ips WHERE apikey_id = ?', 
+        [keyData.id]
+      );
+      
+      // Check machine limit
+      if (machineCount.count >= keyData.maxMachineCount) {
+        return res.status(403).json({ 
+          error: 'Maximum machine limit reached for this API key',
+          maxMachines: keyData.maxMachineCount
+        });
+      }
+      
+      // Check IP limit
+      if (ipCount.count >= (keyData.maxMachineCount * keyData.maxIpCount)) {
+        return res.status(403).json({ 
+          error: 'Maximum IP limit reached for this API key',
+          maxIPs: keyData.maxMachineCount * keyData.maxIpCount
+        });
+      }
+      
+      // Add new IP and machine
+      await db.run(
+        'INSERT INTO allowed_ips (apikey_id, ip, machine_identifier, lastUsed) VALUES (?, ?, ?, datetime("now"))',
+        [keyData.id, clientIP, machineIdentifier]
+      );
+      
+      console.log(`Registered IP ${clientIP} for machine ${machineIdentifier}`);
+    } else {
+      // If IP exists, check machine
+      const machineAccess = await db.get(
+        'SELECT * FROM allowed_ips WHERE apikey_id = ? AND ip = ? AND machine_identifier = ?', 
+        [keyData.id, clientIP, machineIdentifier]
+      );
+      
+      // If machine doesn't match
+      if (!machineAccess) {
+        return res.status(403).json({ 
+          error: 'IP already registered for a different machine',
+          clientIP: clientIP
+        });
+      }
+      
+      // Update last used timestamp
+      await db.run(
+        'UPDATE allowed_ips SET lastUsed = datetime("now") WHERE apikey_id = ? AND ip = ? AND machine_identifier = ?',
+        [keyData.id, clientIP, machineIdentifier]
+      );
+    }
+    
+    // Update API key usage count
+    await db.run(
+      'UPDATE apikeys SET usageCount = usageCount + 1, lastUsed = datetime("now") WHERE id = ?',
+      [keyData.id]
+    );
+    
+    // Get allowed access list
+    const allowedAccess = await db.all(
+      'SELECT ip, machine_identifier FROM allowed_ips WHERE apikey_id = ?', 
+      [keyData.id]
+    );
+    
+    // Attach key data to request
+    req.apiKeyData = {
+      ...keyData,
+      allowedAccess: allowedAccess
+    };
+    
+    next();
+  } catch (error) {
+    console.error('API key verification error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Create Express Router for admin routes
+const adminRouter = express.Router();
+
+// Admin authentication middleware
+adminRouter.use((req, res, next) => {
+  const adminToken = req.headers['x-admin-token'];
+  
+  if (!adminToken || adminToken !== process.env.ADMIN_TOKEN) {
+    return res.status(401).json({ error: 'Admin authentication required' });
+  }
+  
+  next();
 });
 
-// ... (rest of the code remains the same)
-
-// Modify the admin route for creating API keys to include machine count
+// Create a new API key
 adminRouter.post('/keys', async (req, res) => {
   try {
     const { 
@@ -332,6 +311,32 @@ adminRouter.post('/keys', async (req, res) => {
   }
 });
 
-// ... (rest of the code remains the same)
+// Register admin routes with the main app
+app.use('/admin', adminRouter);
+
+// API routes with URL parameter verification
+app.get('/api/data-url', verifyApiKeyFromURL, (req, res) => {
+  res.json({ 
+    message: 'You have access to protected data via URL',
+    keyName: req.apiKeyData.name,
+    clientIP: getClientIp(req),
+    registeredIPs: req.apiKeyData.allowedAccess,
+    ipLimit: req.apiKeyData.maxIpCount,
+    currentIpCount: req.apiKeyData.allowedAccess.length
+  });
+});
+
+// Initialize database and start server
+initializeDatabase()
+  .then(() => {
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
+    });
+  })
+  .catch(err => {
+    console.error('Failed to initialize database:', err);
+    process.exit(1);
+  });
 
 module.exports = app;
