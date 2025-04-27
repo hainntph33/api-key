@@ -387,12 +387,12 @@
       let html = '';
       
       keys.forEach(key => {
-        const isActive = key.isActive;
+        const isActive = key.isActive === 1;
         const isExpired = key.expiresAt && new Date(key.expiresAt) < new Date();
         const status = isActive && !isExpired ? 'active' : 'inactive';
         
         html += `
-          <div class="api-key-item" data-id="${key._id}">
+          <div class="api-key-item" data-id="${key.id}">
             <div class="d-flex justify-content-between align-items-start mb-3">
               <h5 class="mb-0">${key.name}</h5>
               <div>
@@ -405,19 +405,19 @@
                   </button>
                   <ul class="dropdown-menu">
                     <li>
-                      <a class="dropdown-item add-ip-btn" href="#" data-id="${key._id}">
+                      <a class="dropdown-item add-ip-btn" href="#" data-id="${key.id}">
                         <i class="fas fa-plus me-2"></i> Thêm IP
                       </a>
                     </li>
                     <li>
-                      <a class="dropdown-item toggle-status-btn" href="#" data-id="${key._id}" data-status="${isActive}">
+                      <a class="dropdown-item toggle-status-btn" href="#" data-id="${key.id}" data-status="${isActive}">
                         <i class="fas fa-${isActive ? 'ban' : 'check'} me-2"></i> 
                         ${isActive ? 'Vô hiệu hóa' : 'Kích hoạt'}
                       </a>
                     </li>
                     <li><hr class="dropdown-divider"></li>
                     <li>
-                      <a class="dropdown-item text-danger delete-key-btn" href="#" data-id="${key._id}">
+                      <a class="dropdown-item text-danger delete-key-btn" href="#" data-id="${key.id}">
                         <i class="fas fa-trash-alt me-2"></i> Xóa
                       </a>
                     </li>
@@ -461,7 +461,7 @@
                   key.allowedIPs.map(ip => `
                     <div class="tag">
                       ${ip} 
-                      <i class="fas fa-times-circle ms-1 remove-ip-btn" data-key-id="${key._id}" data-ip="${ip}"></i>
+                      <i class="fas fa-times-circle ms-1 remove-ip-btn" data-key-id="${key.id}" data-ip="${ip}"></i>
                     </div>
                   `).join('') : 
                   '<span class="text-muted small">Không có IP nào được chỉ định</span>'
@@ -544,7 +544,7 @@
                 'x-admin-token': adminToken
               },
               body: JSON.stringify({
-                isActive: newStatus
+                isActive: newStatus ? 1 : 0
               })
             });
             

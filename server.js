@@ -1,11 +1,13 @@
-// server.js - API Key Management Server
+// server.js - API Key Management Server with SQLite
 const express = require('express');
 const morgan = require('morgan');
-const mongoose = require('mongoose');
 const crypto = require('crypto');
 const dotenv = require('dotenv');
 const path = require('path');
 const cors = require('cors');
+const sqlite3 = require('sqlite3').verbose();
+const { open } = require('sqlite');
+const fs = require('fs');
 
 // Load environment variables
 dotenv.config();
@@ -19,25 +21,61 @@ app.use(cors());
 // Serve static files from the public directory
 app.use(express.static('public'));
 
-// Connect to MongoDB
-mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/apikeymanager')
-  .then(() => console.log('MongoDB connected'))
-  .catch(err => console.error('MongoDB connection error:', err));
+// Create database directory if it doesn't exist
+const dbDir = path.join(__dirname, 'database');
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir);
+}
 
-// Define the API key schema
-const apiKeySchema = new mongoose.Schema({
-  key: { type: String, required: true, unique: true },
-  name: { type: String, required: true },
-  allowedIPs: [{ type: String }],
-  createdAt: { type: Date, default: Date.now },
-  expiresAt: { type: Date },
-  isActive: { type: Boolean, default: true },
-  usageCount: { type: Number, default: 0 },
-  lastUsed: { type: Date }
+// SQLite database connection
+const dbPath = path.join(dbDir, 'apikeys.db');
+let db;
+
+// Initialize database and create tables if they don't exist
+async function initializeDatabase() {
+  db = await open({
+    filename: dbPath,
+    driver: sqlite3.Database
+  });
+
+  // Enable foreign keys
+  await db.run('PRAGMA foreign_keys = ON');
+
+  // Create tables
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS apikeys (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      key TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      isActive INTEGER DEFAULT 1,
+      createdAt TEXT DEFAULT (datetime('now')),
+      expiresAt TEXT,
+      usageCount INTEGER DEFAULT 0,
+      lastUsed TEXT
+    );
+    
+    CREATE TABLE IF NOT EXISTS allowed_ips (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      apikey_id INTEGER NOT NULL,
+      ip TEXT NOT NULL,
+      UNIQUE(apikey_id, ip),
+      FOREIGN KEY (apikey_id) REFERENCES apikeys(id) ON DELETE CASCADE
+    );
+  `);
+  
+  console.log('Database initialized');
+}
+
+// Initialize database on startup
+initializeDatabase().catch(err => {
+  console.error('Database initialization error:', err);
+  process.exit(1);
 });
 
-// Create the model
-const ApiKey = mongoose.model('ApiKey', apiKeySchema);
+// Generate a new API key
+function generateApiKey() {
+  return crypto.randomBytes(24).toString('hex');
+}
 
 // Middleware to verify API key and IP
 const verifyApiKey = async (req, res, next) => {
@@ -49,7 +87,8 @@ const verifyApiKey = async (req, res, next) => {
   }
 
   try {
-    const keyData = await ApiKey.findOne({ key: apiKey });
+    // Get API key data
+    const keyData = await db.get('SELECT * FROM apikeys WHERE key = ?', [apiKey]);
     
     if (!keyData) {
       return res.status(401).json({ error: 'Invalid API key' });
@@ -59,24 +98,30 @@ const verifyApiKey = async (req, res, next) => {
       return res.status(403).json({ error: 'API key is inactive' });
     }
     
-    if (keyData.expiresAt && keyData.expiresAt < new Date()) {
+    if (keyData.expiresAt && new Date(keyData.expiresAt) < new Date()) {
       return res.status(403).json({ error: 'API key has expired' });
     }
     
-    // Check if the client IP is allowed
-    if (keyData.allowedIPs && keyData.allowedIPs.length > 0) {
-      if (!keyData.allowedIPs.includes(clientIP)) {
-        return res.status(403).json({ error: 'IP not authorized for this API key' });
-      }
+    // Check if the client IP is in the allowed IPs list
+    const allowedIPs = await db.all('SELECT ip FROM allowed_ips WHERE apikey_id = ?', [keyData.id]);
+    const ipList = allowedIPs.map(item => item.ip);
+    
+    if (ipList.length > 0 && !ipList.includes(clientIP)) {
+      return res.status(403).json({ error: 'IP not authorized for this API key' });
     }
     
     // Update usage statistics
-    keyData.usageCount += 1;
-    keyData.lastUsed = new Date();
-    await keyData.save();
+    await db.run(
+      'UPDATE apikeys SET usageCount = usageCount + 1, lastUsed = datetime("now") WHERE id = ?',
+      [keyData.id]
+    );
     
     // Attach the key data to the request object
-    req.apiKeyData = keyData;
+    req.apiKeyData = {
+      ...keyData,
+      allowedIPs: ipList
+    };
+    
     next();
   } catch (error) {
     console.error('API key verification error:', error);
@@ -84,15 +129,10 @@ const verifyApiKey = async (req, res, next) => {
   }
 };
 
-// Generate a new API key
-function generateApiKey() {
-  return crypto.randomBytes(24).toString('hex');
-}
-
 // Admin routes for managing API keys
 const adminRouter = express.Router();
 
-// Admin authentication middleware (simplified - should use proper auth in production)
+// Admin authentication middleware
 adminRouter.use((req, res, next) => {
   const adminToken = req.headers['x-admin-token'];
   
@@ -112,16 +152,45 @@ adminRouter.post('/keys', async (req, res) => {
       return res.status(400).json({ error: 'Name is required' });
     }
     
-    const newKey = new ApiKey({
-      key: generateApiKey(),
-      name,
-      allowedIPs: allowedIPs || [],
-      expiresAt: expiresAt ? new Date(expiresAt) : null
-    });
+    const key = generateApiKey();
     
-    await newKey.save();
-    res.status(201).json(newKey);
+    // Start a transaction
+    await db.run('BEGIN TRANSACTION');
+    
+    // Insert the new API key
+    const result = await db.run(
+      'INSERT INTO apikeys (key, name, expiresAt) VALUES (?, ?, ?)',
+      [key, name, expiresAt]
+    );
+    
+    const keyId = result.lastID;
+    
+    // Insert allowed IPs
+    if (allowedIPs && allowedIPs.length > 0) {
+      const insertIpStatement = await db.prepare(
+        'INSERT INTO allowed_ips (apikey_id, ip) VALUES (?, ?)'
+      );
+      
+      for (const ip of allowedIPs) {
+        await insertIpStatement.run(keyId, ip);
+      }
+      
+      await insertIpStatement.finalize();
+    }
+    
+    // Commit the transaction
+    await db.run('COMMIT');
+    
+    // Get the created API key with IPs
+    const newKey = await db.get('SELECT * FROM apikeys WHERE id = ?', [keyId]);
+    const ips = await db.all('SELECT ip FROM allowed_ips WHERE apikey_id = ?', [keyId]);
+    
+    res.status(201).json({
+      ...newKey,
+      allowedIPs: ips.map(item => item.ip)
+    });
   } catch (error) {
+    await db.run('ROLLBACK');
     console.error('Error creating API key:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -130,7 +199,14 @@ adminRouter.post('/keys', async (req, res) => {
 // Get all API keys
 adminRouter.get('/keys', async (req, res) => {
   try {
-    const keys = await ApiKey.find({});
+    const keys = await db.all('SELECT * FROM apikeys ORDER BY createdAt DESC');
+    
+    // Get allowed IPs for each key
+    for (const key of keys) {
+      const ips = await db.all('SELECT ip FROM allowed_ips WHERE apikey_id = ?', [key.id]);
+      key.allowedIPs = ips.map(item => item.ip);
+    }
+    
     res.json(keys);
   } catch (error) {
     console.error('Error fetching API keys:', error);
@@ -141,10 +217,15 @@ adminRouter.get('/keys', async (req, res) => {
 // Get a single API key
 adminRouter.get('/keys/:id', async (req, res) => {
   try {
-    const key = await ApiKey.findById(req.params.id);
+    const key = await db.get('SELECT * FROM apikeys WHERE id = ?', [req.params.id]);
+    
     if (!key) {
       return res.status(404).json({ error: 'API key not found' });
     }
+    
+    const ips = await db.all('SELECT ip FROM allowed_ips WHERE apikey_id = ?', [key.id]);
+    key.allowedIPs = ips.map(item => item.ip);
+    
     res.json(key);
   } catch (error) {
     console.error('Error fetching API key:', error);
@@ -156,18 +237,59 @@ adminRouter.get('/keys/:id', async (req, res) => {
 adminRouter.put('/keys/:id', async (req, res) => {
   try {
     const { name, allowedIPs, isActive, expiresAt } = req.body;
-    const updatedKey = await ApiKey.findByIdAndUpdate(
-      req.params.id,
-      { name, allowedIPs, isActive, expiresAt: expiresAt ? new Date(expiresAt) : null },
-      { new: true }
-    );
+    const keyId = req.params.id;
     
-    if (!updatedKey) {
+    // Check if key exists
+    const existingKey = await db.get('SELECT * FROM apikeys WHERE id = ?', [keyId]);
+    
+    if (!existingKey) {
       return res.status(404).json({ error: 'API key not found' });
     }
     
+    // Start a transaction
+    await db.run('BEGIN TRANSACTION');
+    
+    // Update the API key
+    await db.run(
+      'UPDATE apikeys SET name = ?, isActive = ?, expiresAt = ? WHERE id = ?',
+      [
+        name || existingKey.name,
+        isActive !== undefined ? isActive : existingKey.isActive,
+        expiresAt || existingKey.expiresAt,
+        keyId
+      ]
+    );
+    
+    // Update allowed IPs if provided
+    if (allowedIPs) {
+      // Delete existing IPs
+      await db.run('DELETE FROM allowed_ips WHERE apikey_id = ?', [keyId]);
+      
+      // Insert new IPs
+      if (allowedIPs.length > 0) {
+        const insertIpStatement = await db.prepare(
+          'INSERT INTO allowed_ips (apikey_id, ip) VALUES (?, ?)'
+        );
+        
+        for (const ip of allowedIPs) {
+          await insertIpStatement.run(keyId, ip);
+        }
+        
+        await insertIpStatement.finalize();
+      }
+    }
+    
+    // Commit the transaction
+    await db.run('COMMIT');
+    
+    // Get the updated API key
+    const updatedKey = await db.get('SELECT * FROM apikeys WHERE id = ?', [keyId]);
+    const ips = await db.all('SELECT ip FROM allowed_ips WHERE apikey_id = ?', [keyId]);
+    updatedKey.allowedIPs = ips.map(item => item.ip);
+    
     res.json(updatedKey);
   } catch (error) {
+    await db.run('ROLLBACK');
     console.error('Error updating API key:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -176,10 +298,18 @@ adminRouter.put('/keys/:id', async (req, res) => {
 // Delete an API key
 adminRouter.delete('/keys/:id', async (req, res) => {
   try {
-    const deletedKey = await ApiKey.findByIdAndDelete(req.params.id);
-    if (!deletedKey) {
+    const keyId = req.params.id;
+    
+    // Check if key exists
+    const existingKey = await db.get('SELECT * FROM apikeys WHERE id = ?', [keyId]);
+    
+    if (!existingKey) {
       return res.status(404).json({ error: 'API key not found' });
     }
+    
+    // Delete the key (cascades to allowed_ips due to foreign key constraint)
+    await db.run('DELETE FROM apikeys WHERE id = ?', [keyId]);
+    
     res.status(204).end();
   } catch (error) {
     console.error('Error deleting API key:', error);
@@ -191,23 +321,39 @@ adminRouter.delete('/keys/:id', async (req, res) => {
 adminRouter.post('/keys/:id/ip', async (req, res) => {
   try {
     const { ip } = req.body;
+    const keyId = req.params.id;
     
     if (!ip) {
       return res.status(400).json({ error: 'IP address is required' });
     }
     
-    const key = await ApiKey.findById(req.params.id);
+    // Check if key exists
+    const existingKey = await db.get('SELECT * FROM apikeys WHERE id = ?', [keyId]);
     
-    if (!key) {
+    if (!existingKey) {
       return res.status(404).json({ error: 'API key not found' });
     }
     
-    if (!key.allowedIPs.includes(ip)) {
-      key.allowedIPs.push(ip);
-      await key.save();
+    // Check if IP already exists for this key
+    const existingIp = await db.get(
+      'SELECT * FROM allowed_ips WHERE apikey_id = ? AND ip = ?',
+      [keyId, ip]
+    );
+    
+    if (!existingIp) {
+      // Add new IP
+      await db.run(
+        'INSERT INTO allowed_ips (apikey_id, ip) VALUES (?, ?)',
+        [keyId, ip]
+      );
     }
     
-    res.json(key);
+    // Get updated key with IPs
+    const updatedKey = await db.get('SELECT * FROM apikeys WHERE id = ?', [keyId]);
+    const ips = await db.all('SELECT ip FROM allowed_ips WHERE apikey_id = ?', [keyId]);
+    updatedKey.allowedIPs = ips.map(item => item.ip);
+    
+    res.json(updatedKey);
   } catch (error) {
     console.error('Error registering IP:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -217,22 +363,32 @@ adminRouter.post('/keys/:id/ip', async (req, res) => {
 // Remove IP from an API key
 adminRouter.delete('/keys/:id/ip/:ip', async (req, res) => {
   try {
-    const key = await ApiKey.findById(req.params.id);
+    const keyId = req.params.id;
+    const ip = req.params.ip;
     
-    if (!key) {
+    // Check if key exists
+    const existingKey = await db.get('SELECT * FROM apikeys WHERE id = ?', [keyId]);
+    
+    if (!existingKey) {
       return res.status(404).json({ error: 'API key not found' });
     }
     
-    const ipIndex = key.allowedIPs.indexOf(req.params.ip);
+    // Delete the IP
+    const result = await db.run(
+      'DELETE FROM allowed_ips WHERE apikey_id = ? AND ip = ?',
+      [keyId, ip]
+    );
     
-    if (ipIndex === -1) {
+    if (result.changes === 0) {
       return res.status(404).json({ error: 'IP not found for this API key' });
     }
     
-    key.allowedIPs.splice(ipIndex, 1);
-    await key.save();
+    // Get updated key with IPs
+    const updatedKey = await db.get('SELECT * FROM apikeys WHERE id = ?', [keyId]);
+    const ips = await db.all('SELECT ip FROM allowed_ips WHERE apikey_id = ?', [keyId]);
+    updatedKey.allowedIPs = ips.map(item => item.ip);
     
-    res.json(key);
+    res.json(updatedKey);
   } catch (error) {
     console.error('Error removing IP:', error);
     res.status(500).json({ error: 'Internal server error' });

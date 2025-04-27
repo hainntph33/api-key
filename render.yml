@@ -11,5 +11,7 @@ services:
         value: production
       - key: ADMIN_TOKEN
         sync: false
-      - key: MONGO_URI
-        sync: false
+    disk:
+      name: api-data
+      mountPath: /opt/render/project/src/database
+      sizeGB: 1
