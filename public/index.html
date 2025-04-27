@@ -34,11 +34,25 @@
         button:hover {
             background-color: #45a049;
         }
-        #result {
+        #result, #keysList {
             margin-top: 20px;
             padding: 10px;
             background-color: #f1f1f1;
             border-radius: 5px;
+        }
+        .key-item {
+            border-bottom: 1px solid #ddd;
+            padding: 10px 0;
+        }
+        .key-item:last-child {
+            border-bottom: none;
+        }
+        .actions button {
+            margin-right: 10px;
+            background-color: #2196F3;
+        }
+        .actions button.delete {
+            background-color: #f44336;
         }
     </style>
 </head>
@@ -59,7 +73,7 @@
 
         <div class="form-group">
             <label for="allowedIPs">Allowed IPs (one per line)</label>
-            <textarea id="allowedIPs" rows="4"></textarea>
+            <textarea id="allowedIPs" rows="4" placeholder="192.168.1.1&#10;10.0.0.1"></textarea>
         </div>
 
         <div class="form-group">
@@ -98,11 +112,18 @@
 
     <div id="result"></div>
 
+    <h2>Existing API Keys</h2>
+    <button id="fetchKeysBtn">Fetch API Keys</button>
+    <div id="keysList"></div>
+
     <script>
         const BASE_URL = window.location.origin;
         const API_URL = `${BASE_URL}/admin/keys`;
         const resultDiv = document.getElementById('result');
+        const keysListDiv = document.getElementById('keysList');
+        const fetchKeysBtn = document.getElementById('fetchKeysBtn');
 
+        // Create API Key
         document.getElementById('createKeyForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -150,6 +171,8 @@
                         <h3>API Key Created Successfully</h3>
                         <pre>${JSON.stringify(result, null, 2)}</pre>
                     `;
+                    // Clear form after successful creation
+                    document.getElementById('createKeyForm').reset();
                 } else {
                     resultDiv.innerHTML = `
                         <h3>Error Creating API Key</h3>
@@ -163,6 +186,143 @@
                 `;
             }
         });
+
+        // Fetch API Keys
+        fetchKeysBtn.addEventListener('click', async () => {
+            const adminToken = document.getElementById('adminToken').value;
+            
+            if (!adminToken) {
+                keysListDiv.innerHTML = '<p>Please enter admin token first.</p>';
+                return;
+            }
+            
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'GET',
+                    headers: {
+                        'x-admin-token': adminToken
+                    }
+                });
+                
+                const keys = await response.json();
+                
+                if (response.ok) {
+                    renderKeys(keys);
+                } else {
+                    keysListDiv.innerHTML = `
+                        <h3>Error Fetching API Keys</h3>
+                        <pre>${JSON.stringify(keys, null, 2)}</pre>
+                    `;
+                }
+            } catch (error) {
+                keysListDiv.innerHTML = `
+                    <h3>Network Error</h3>
+                    <p>${error.message}</p>
+                `;
+            }
+        });
+
+        // Render API Keys
+        function renderKeys(keys) {
+            if (keys.length === 0) {
+                keysListDiv.innerHTML = '<p>No API keys found.</p>';
+                return;
+            }
+            
+            const keysHtml = keys.map(key => `
+                <div class="key-item">
+                    <h3>${key.name}</h3>
+                    <p><strong>Key:</strong> ${key.key}</p>
+                    <p><strong>Created:</strong> ${new Date(key.createdAt).toLocaleString()}</p>
+                    <p><strong>Expires:</strong> ${key.expiresAt ? new Date(key.expiresAt).toLocaleString() : 'Never'}</p>
+                    <p><strong>Status:</strong> ${key.isActive ? 'Active' : 'Inactive'}</p>
+                    <p><strong>Usage Count:</strong> ${key.usageCount}</p>
+                    <p><strong>Max Machines:</strong> ${key.maxMachineCount || 1}</p>
+                    <p><strong>Max IPs per Machine:</strong> ${key.maxIpCount || 5}</p>
+                    <p><strong>Auto-Register:</strong> ${key.allowAutoRegister ? 'Enabled' : 'Disabled'}</p>
+                    <p><strong>Allowed IPs:</strong></p>
+                    <ul>
+                        ${(key.allowedIPs || []).map(ip => `<li>${ip.ip} (Machine: ${ip.machineIdentifier})</li>`).join('') || '<li>No IPs registered</li>'}
+                    </ul>
+                    <div class="actions">
+                        <button onclick="toggleKeyStatus('${key.id}')">
+                            ${key.isActive ? 'Deactivate' : 'Activate'}
+                        </button>
+                        <button class="delete" onclick="deleteKey('${key.id}')">Delete</button>
+                    </div>
+                </div>
+            `).join('');
+            
+            keysListDiv.innerHTML = keysHtml;
+        }
+
+        // Toggle Key Status
+        async function toggleKeyStatus(keyId) {
+            const adminToken = document.getElementById('adminToken').value;
+            
+            try {
+                const response = await fetch(`${API_URL}/${keyId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-admin-token': adminToken
+                    },
+                    body: JSON.stringify({
+                        isActive: 'toggle'
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    fetchKeysBtn.click(); // Refresh the list
+                } else {
+                    resultDiv.innerHTML = `
+                        <h3>Error Toggling Key Status</h3>
+                        <pre>${JSON.stringify(result, null, 2)}</pre>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <h3>Network Error</h3>
+                    <p>${error.message}</p>
+                `;
+            }
+        }
+
+        // Delete Key
+        async function deleteKey(keyId) {
+            const adminToken = document.getElementById('adminToken').value;
+            
+            if (!confirm('Are you sure you want to delete this API key?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_URL}/${keyId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'x-admin-token': adminToken
+                    }
+                });
+                
+                if (response.ok) {
+                    fetchKeysBtn.click(); // Refresh the list
+                    resultDiv.innerHTML = '<p>API Key deleted successfully.</p>';
+                } else {
+                    const result = await response.json();
+                    resultDiv.innerHTML = `
+                        <h3>Error Deleting Key</h3>
+                        <pre>${JSON.stringify(result, null, 2)}</pre>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <h3>Network Error</h3>
+                    <p>${error.message}</p>
+                `;
+            }
+        }
     </script>
 </body>
 </html>
